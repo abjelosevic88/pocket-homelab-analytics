@@ -6,16 +6,16 @@ import { api, V1 } from '../lib/api'
 import { announceChange, useData } from '../lib/data'
 import type { Funnel, Goal, Site, SiteOptions, Step } from '../lib/types'
 import { zones } from '../lib/analytics'
-import { Confirm, Empty, Field, Loading, Modal, Segmented, SettingRow, Switch, Tabs, errMsg, useIsMobile, useToast } from '../components/ui'
+import { Confirm, CopyField, Empty, Field, Loading, Modal, Segmented, SettingRow, Switch, Tabs, errMsg, useIsMobile, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { Select } from '../components/Select'
 import { useCrumb } from '../components/Layout'
 import { CheckButton, Snippet } from './Dashboard'
 
-type TabId = 'install' | 'counting' | 'goals' | 'funnels' | 'alerts' | 'general' | 'data'
+type TabId = 'install' | 'counting' | 'goals' | 'funnels' | 'links' | 'alerts' | 'general' | 'data'
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'install', label: 'Install', icon: 'code' }, { id: 'counting', label: 'What is counted', icon: 'sliders' }, { id: 'goals', label: 'Goals', icon: 'target' },
-  { id: 'funnels', label: 'Funnels', icon: 'trending-down' }, { id: 'alerts', label: 'Alerts & report', icon: 'bell' }, { id: 'general', label: 'Name & address', icon: 'globe' },
+  { id: 'funnels', label: 'Funnels', icon: 'trending-down' }, { id: 'links', label: 'Campaign links', icon: 'link' }, { id: 'alerts', label: 'Alerts & report', icon: 'bell' }, { id: 'general', label: 'Name & address', icon: 'globe' },
   { id: 'data', label: 'Data', icon: 'database' },
 ]
 
@@ -44,6 +44,7 @@ export default function SiteSettings() {
           {tab === 'counting' && <Counting site={site} onSaved={setSite} />}
           {tab === 'goals' && <Goals site={site} onChanged={load} />}
           {tab === 'funnels' && <Funnels site={site} onChanged={load} />}
+          {tab === 'links' && <CampaignLinks site={site} />}
           {tab === 'alerts' && <Alerts site={site} onSaved={setSite} />}
           {tab === 'general' && <General site={site} onSaved={setSite} />}
           {tab === 'data' && <DataTab site={site} />}
@@ -128,6 +129,13 @@ if (url.pathname === '/_p/event' && request.method === 'POST') {
         <p className="muted small mt">or call it from your code (after the script line):</p>
         <Snippet site={site} code={`window.pocket('Order placed', { props: { type: 'pickup' } })`} />
         <p className="muted small mt">Plausible's way works too: <code>plausible('Signup')</code> and <code>class="plausible-event-name=Signup"</code>. Then make the event a goal.</p>
+        <p className="muted small mt"><b>Money.</b> Say what an order was worth and the goal shows what it brought:</p>
+        <Snippet site={site} code={`window.pocket('Order placed', { revenue: { amount: 24.50, currency: 'EUR' } })`} />
+        <p className="muted small mt"><b>Pages that do not exist.</b> Counted by themselves when your server answers “404”. If your not-found page answers “200” (many apps do), mark it:</p>
+        <Snippet site={site} code={`<body data-pocket-404>`} />
+        <p className="muted small mt"><b>Searches.</b> Counted when the address of your results page holds the words (<code>/search?q=cake</code>). For a search that never changes the address:</p>
+        <Snippet site={site} code={`window.pocket('Search', { props: { term: 'cake' } })`} />
+        <p className="muted small mt"><b>Forms.</b> Every form sent is counted under its name (<code>id</code>, <code>name</code> or <code>aria-label</code>), never what was typed. Give one a clear name with <code>data-pocket-form="Contact"</code>, or leave one out with <code>data-pocket-ignore</code>.</p>
       </>}
     </Section>
     <Section title="Don't count yourself" sub="Open this link once in each browser you use; that browser is not counted on this site any more.">
@@ -143,22 +151,72 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
   const o = site.options
   const set = (patch: Partial<SiteOptions>) => save({ options: { ...o, ...patch } })
   const [exclude, setExclude] = useState(o.exclude.join('\n'))
+  const [params, setParams] = useState((o.search_params || []).join(', '))
   return <>
-    <Section title="Clicks">
-      <SettingRow title="Links to other sites" help="Which links people follow away from your site."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>
+    <Section title="What people press">
+      <SettingRow title="Links to other sites" help="Which links people follow away from your site, and which email addresses and phone numbers they press."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>
       <SettingRow title="Files" help="Which PDFs, zips and other files people download."><Switch checked={o.downloads} onChange={v => set({ downloads: v })} /></SettingRow>
+      <SettingRow title="Forms" help="Which forms people send (contact, order, newsletter) — never what they typed."><Switch checked={o.forms} onChange={v => set({ forms: v })} /></SettingRow>
       <SettingRow title="Every link and button" help="What people press, by its words (“Order a cake”). More to store; the line to paste changes."><Switch checked={o.clicks} onChange={v => set({ clicks: v })} /></SettingRow>
     </Section>
     <Section title="Pages">
+      <SettingRow title="How fast pages are" help="How long a page takes to show and to answer a press, measured in each visitor's browser."><Switch checked={o.speed} onChange={v => set({ speed: v })} /></SettingRow>
+      <SettingRow title="Pages that do not exist" help="Addresses people land on that your site does not have, and the page with the link to them."><Switch checked={o.not_found} onChange={v => set({ not_found: v })} /></SettingRow>
+      <SettingRow title="Searches on your site" help="What people type into your site's search. The words are read from the address of the results page."><Switch checked={o.search} onChange={v => set({ search: v })} /></SettingRow>
+      {o.search && <Field label="Where the search words are" help="The names in the address that hold them, with commas: /search?q=cake → q. WordPress uses s.">
+        <input value={params} onChange={e => setParams(e.target.value)} onBlur={() => { const list = params.split(/[\s,]+/).map(x => x.trim()).filter(Boolean); if (list.join(',') !== (o.search_params || []).join(',')) set({ search_params: list }) }} placeholder="q, s, search, query" autoCapitalize="off" spellCheck={false} />
+      </Field>}
       <SettingRow title="Pages by #" help="For apps whose pages differ only after # in the address. The line to paste changes."><Switch checked={o.hash} onChange={v => set({ hash: v })} /></SettingRow>
       <SettingRow title="Count localhost" help="Visits from your own computer while you build the site."><Switch checked={o.localhost} onChange={v => set({ localhost: v })} /></SettingRow>
       <Field label="Pages not counted" help="One per line; * stands for anything: /admin*, /preview/*">
         <textarea rows={3} value={exclude} onChange={e => setExclude(e.target.value)} onBlur={() => { if (exclude !== o.exclude.join('\n')) set({ exclude: exclude.split('\n').map(x => x.trim()).filter(Boolean) }) }} placeholder="/admin*" />
       </Field>
     </Section>
-    {(o.clicks !== site.options.clicks || o.hash) && null}
-    <Section title="The line on your pages" sub="It follows these choices; copy it again after changing clicks or pages by #.">
+    <Section title="The line on your pages" sub="Everything above works with the line you already have. Copy it again only after changing “Every link and button” or “Pages by #”.">
       <Snippet site={site} />
+    </Section>
+  </>
+}
+
+// ---- campaign links ----
+
+const MEDIUMS = [{ value: 'email', label: 'Email / newsletter' }, { value: 'social', label: 'Social post' }, { value: 'paid_social', label: 'Paid social ad' }, { value: 'cpc', label: 'Search ad' }, { value: 'qr', label: 'QR code / print' }, { value: 'referral', label: 'Another site' }]
+
+/** Builds a link that says where a visit came from, so a newsletter or an ad shows under Campaigns. */
+function CampaignLinks({ site }: { site: Site }) {
+  const [page, setPage] = useState('/')
+  const [source, setSource] = useState('')
+  const [medium, setMedium] = useState('email')
+  const [campaign, setCampaign] = useState('')
+  const slug = (v: string) => v.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9._~-]/g, '')
+  let link = ''
+  if (source.trim()) {
+    try {
+      const u = new URL(/^https?:\/\//.test(page) ? page : `https://${site.domain}${page.startsWith('/') ? '' : '/'}${page}`)
+      u.searchParams.set('utm_source', slug(source))
+      if (medium) u.searchParams.set('utm_medium', medium)
+      if (slug(campaign)) u.searchParams.set('utm_campaign', slug(campaign))
+      link = u.toString()
+    } catch { link = '' }
+  }
+  return <>
+    <Section title="A link that says where it was" sub="Emails, apps and QR codes do not tell a site where a visit came from. Put this link in them and the visits show under Where they came from → Campaigns.">
+      <div className="camp-grid">
+        <Field label="The page it opens" className="full" help={`A page of ${site.domain}, like /cakes — or a whole address.`}><input value={page} onChange={e => setPage(e.target.value)} placeholder="/" autoCapitalize="off" spellCheck={false} /></Field>
+        <Field label="Where the link will be" help="The newsletter, the place, the partner.">
+          <input value={source} onChange={e => setSource(e.target.value)} placeholder="newsletter" autoCapitalize="off" />
+        </Field>
+        <Field label="What kind of place"><Select value={medium} onChange={setMedium} options={MEDIUMS} /></Field>
+        <Field label="Campaign (optional)" className="full" help="One name for everything that belongs together: spring-cakes."><input value={campaign} onChange={e => setCampaign(e.target.value)} placeholder="spring-cakes" autoCapitalize="off" /></Field>
+      </div>
+      <div className="camp-ideas">
+        <span className="muted small">Quick start:</span>
+        {[['newsletter', 'email'], ['instagram', 'social'], ['facebook', 'social'], ['flyer', 'qr'], ['google', 'cpc']].map(([s, m]) => <button key={s} type="button" className="btn sm" onClick={() => { setSource(s); setMedium(m) }}>{s}</button>)}
+      </div>
+    </Section>
+    <Section title="Your link">
+      {link ? <CopyField value={link} label="Campaign link" /> : <p className="muted small">Say where the link will be, and it appears here.</p>}
+      <p className="muted small mt">Use it only in places outside your site. A link from one of your own pages to another needs nothing.</p>
     </Section>
   </>
 }

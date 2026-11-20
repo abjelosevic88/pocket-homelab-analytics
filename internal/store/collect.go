@@ -21,7 +21,10 @@ type Incoming struct {
 	Props       string // JSON object or ""
 	Engaged     int64  // engagement: milliseconds since the last report
 	Scroll      int    // engagement: how far down, 0–100
-	Visit       Visit  // what a new visit starts with
+	Vitals      Vitals // engagement: how fast the page was
+	Revenue     float64
+	Currency    string
+	Visit       Visit // what a new visit starts with
 }
 
 type openVisit struct {
@@ -83,8 +86,10 @@ func (s *Store) SaveHits(ctx context.Context, batch []Incoming, cache VisitCache
 			if id == 0 {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE hits SET engaged = engaged + ?, scroll = MAX(scroll, ?) WHERE id = (SELECT id FROM hits WHERE visit_id = ? AND name = 'pageview' AND path = ? ORDER BY ts DESC LIMIT 1)`,
-				in.Engaged, in.Scroll, id, in.Path); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE hits SET engaged = engaged + ?, scroll = MAX(scroll, ?),
+				ttfb = COALESCE(?, ttfb), fcp = COALESCE(?, fcp), lcp = COALESCE(?, lcp), inp = COALESCE(?, inp), cls = COALESCE(?, cls)
+				WHERE id = (SELECT id FROM hits WHERE visit_id = ? AND name = 'pageview' AND path = ? ORDER BY ts DESC LIMIT 1)`,
+				in.Engaged, in.Scroll, in.Vitals.TTFB, in.Vitals.FCP, in.Vitals.LCP, in.Vitals.INP, in.Vitals.CLS, id, in.Path); err != nil {
 				return 0, err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE visits SET engaged = engaged + ?, last = MAX(last, ?) WHERE id = ?`, in.Engaged, in.TS, id); err != nil {
@@ -105,7 +110,8 @@ func (s *Store) SaveHits(ctx context.Context, batch []Incoming, cache VisitCache
 			}
 			id, _ = res.LastInsertId()
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO hits (site_id, visit_id, ts, name, path, props) VALUES (?, ?, ?, ?, ?, ?)`, in.SiteID, id, in.TS, in.Name, in.Path, in.Props); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO hits (site_id, visit_id, ts, name, path, props, revenue, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			in.SiteID, id, in.TS, in.Name, in.Path, in.Props, in.Revenue, in.Currency); err != nil {
 			return 0, err
 		}
 		q := `UPDATE visits SET events = events + 1, last = MAX(last, ?) WHERE id = ?`

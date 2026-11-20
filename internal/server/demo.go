@@ -80,6 +80,15 @@ var techDevices = []pick[demoDevice]{
 
 var languages = []pick[string]{{"bs", 30}, {"en", 30}, {"hr", 10}, {"sr", 8}, {"de", 10}, {"nl", 2}, {"sl", 2}, {"fr", 2}, {"tr", 1}, {"sv", 1}}
 
+// demoEvent is something a demo visitor does on a page; rev is money in euros.
+type demoEvent struct {
+	name, props string
+	rev         float64
+}
+
+// demoMissing is a page that does not exist and the page that links to it.
+type demoMissing struct{ path, from string }
+
 type demoSite struct {
 	domain, name string
 	perDay       float64
@@ -89,7 +98,10 @@ type demoSite struct {
 	places       []pick[demoPlace]
 	devices      []pick[demoDevice]
 	langs        []pick[string]
-	events       func(rng *rand.Rand, path string) []struct{ name, props string }
+	events       func(rng *rand.Rand, path string) []demoEvent
+	missing      []pick[demoMissing] // broken links people land on
+	slow         map[string]float64  // pages that take longer to show (1 = as the rest)
+	notes        map[int]string      // day (0 = 120 days ago) → what happened
 	goals        []store.Goal
 	funnels      []store.Funnel
 }
@@ -121,31 +133,51 @@ func demoSites() []demoSite {
 			"/gift-cards":              {{"", 60}, {"/order", 40}},
 			"/about":                   {{"", 70}, {"/visit-us", 30}},
 		},
-		events: func(rng *rand.Rand, path string) []struct{ name, props string } {
-			var out []struct{ name, props string }
-			add := func(n, p string) { out = append(out, struct{ name, props string }{n, p}) }
+		events: func(rng *rand.Rand, path string) []demoEvent {
+			var out []demoEvent
+			add := func(n, p string) { out = append(out, demoEvent{name: n, props: p}) }
 			switch path {
 			case "/menu":
 				if rng.Intn(100) < 18 {
 					add("File Download", `{"url":"https://maplebakery.example/files/menu-autumn.pdf"}`)
 				}
+				if rng.Intn(100) < 9 {
+					add("Search", fmt.Sprintf(`{"term":%q}`, choose(rng, []pick[string]{{"burek", 30}, {"gluten free", 22}, {"birthday cake", 18}, {"baklava", 12}, {"vegan", 10}, {"sourdough", 8}, {"opening hours", 7}, {"delivery", 6}, {"gift card", 3}})))
+				}
 			case "/visit-us":
 				if rng.Intn(100) < 35 {
 					add("Outbound Link: Click", `{"url":"https://maps.google.com/maps"}`)
 				}
+				if rng.Intn(100) < 16 {
+					add("Contact Link: Click", `{"kind":"phone","to":"+387 33 555 010"}`)
+				} else if rng.Intn(100) < 6 {
+					add("Contact Link: Click", `{"kind":"email","to":"hello@maplebakery.example"}`)
+				}
+			case "/catering":
+				if rng.Intn(100) < 14 {
+					add("Form: Submission", `{"form":"Catering enquiry"}`)
+				}
+				if rng.Intn(100) < 8 {
+					add("Contact Link: Click", `{"kind":"email","to":"catering@maplebakery.example"}`)
+				}
 			case "/order/thanks":
 				kind := []string{"pickup", "pickup", "delivery"}[rng.Intn(3)]
-				add("Order placed", fmt.Sprintf(`{"type":%q,"size":%q}`, kind, []string{"small", "medium", "large"}[rng.Intn(3)]))
+				size := rng.Intn(3)
+				out = append(out, demoEvent{name: "Order placed", props: fmt.Sprintf(`{"type":%q,"size":%q}`, kind, []string{"small", "medium", "large"}[size]),
+					rev: []float64{18, 32, 54}[size] + float64(rng.Intn(12))})
+				add("Form: Submission", `{"form":"Order form"}`)
 			case "/":
 				if rng.Intn(100) < 6 {
 					add("Outbound Link: Click", `{"url":"https://instagram.com/maplebakery"}`)
 				}
 				if rng.Intn(100) < 3 {
 					add("Newsletter signup", `{"where":"footer"}`)
+					add("Form: Submission", `{"form":"Newsletter"}`)
 				}
 			case "/blog/sourdough-at-home":
 				if rng.Intn(100) < 8 {
 					add("Newsletter signup", `{"where":"article"}`)
+					add("Form: Submission", `{"form":"Newsletter"}`)
 				}
 				if rng.Intn(100) < 10 {
 					add("File Download", `{"url":"https://maplebakery.example/files/sourdough-recipe.pdf"}`)
@@ -153,6 +185,10 @@ func demoSites() []demoSite {
 			}
 			return out
 		},
+		missing: []pick[demoMissing]{{demoMissing{"/cakes/christmas-2024", "klix.ba/lifestyle/hrana"}, 40}, {demoMissing{"/menu.pdf", ""}, 22}, {demoMissing{"/blog/burek", "/blog/best-burek-in-town"}, 18},
+			{demoMissing{"/cakes/christmas-2024", "facebook.com/"}, 12}, {demoMissing{"/contact", "tripadvisor.com/Restaurant_Review"}, 8}},
+		slow:  map[string]float64{"/cakes": 1.9, "/cakes/birthday": 1.6, "/cakes/wedding": 2.3, "/": 1.1},
+		notes: map[int]string{62: "New menu page", 108: "The November newsletter went out"},
 		goals: []store.Goal{{Name: "Order placed", Kind: "event", Match: "Order placed"}, {Name: "Newsletter signup", Kind: "event", Match: "Newsletter signup"},
 			{Name: "Looked at cakes", Kind: "page", Match: "/cakes*"}, {Name: "Downloaded the menu", Kind: "event", Match: "File Download"}},
 		funnels: []store.Funnel{{Name: "From the menu to an order", Steps: []store.Step{{Kind: "page", Match: "/menu", Label: "Menu"}, {Kind: "page", Match: "/order", Label: "Order form"}, {Kind: "event", Match: "Order placed", Label: "Ordered"}}},
@@ -173,19 +209,25 @@ func demoSites() []demoSite {
 			"/about": {{"", 70}, {"/now", 15}, {"/", 15}},
 			"/now":   {{"", 85}, {"/", 15}},
 		},
-		events: func(rng *rand.Rand, path string) []struct{ name, props string } {
-			var out []struct{ name, props string }
+		events: func(rng *rand.Rand, path string) []demoEvent {
+			var out []demoEvent
 			if len(path) > 7 && path[:7] == "/posts/" {
 				if rng.Intn(100) < 22 {
-					out = append(out, struct{ name, props string }{"Outbound Link: Click", []string{`{"url":"https://github.com/abjelosevic88"}`, `{"url":"https://sqlite.org/whentouse.html"}`, `{"url":"https://tailscale.com/kb"}`}[rng.Intn(3)]})
+					out = append(out, demoEvent{name: "Outbound Link: Click", props: []string{`{"url":"https://github.com/abjelosevic88"}`, `{"url":"https://sqlite.org/whentouse.html"}`, `{"url":"https://tailscale.com/kb"}`}[rng.Intn(3)]})
 				}
 				if rng.Intn(100) < 4 {
-					out = append(out, struct{ name, props string }{"Subscribed (RSS)", ""})
+					out = append(out, demoEvent{name: "Subscribed (RSS)"})
 				}
+			}
+			if path == "/" && rng.Intn(100) < 7 {
+				out = append(out, demoEvent{name: "Search", props: fmt.Sprintf(`{"term":%q}`, choose(rng, []pick[string]{{"sqlite", 30}, {"backup", 20}, {"raspberry pi", 20}, {"tailscale", 15}, {"docker", 10}, {"rss", 5}}))})
 			}
 			return out
 		},
-		goals: []store.Goal{{Name: "Read a post", Kind: "page", Match: "/posts/*"}, {Name: "Subscribed (RSS)", Kind: "event", Match: "Subscribed (RSS)"}},
+		missing: []pick[demoMissing]{{demoMissing{"/posts/sqlite-is-enough.html", "news.ycombinator.com/item"}, 50}, {demoMissing{"/feed", ""}, 30}, {demoMissing{"/posts/hello-world", "github.com/abjelosevic88"}, 20}},
+		slow:    map[string]float64{"/posts/self-hosting-on-a-raspberry-pi": 1.5},
+		notes:   map[int]string{100: "On the front page of Hacker News"},
+		goals:   []store.Goal{{Name: "Read a post", Kind: "page", Match: "/posts/*"}, {Name: "Subscribed (RSS)", Kind: "event", Match: "Subscribed (RSS)"}},
 	}
 	return []demoSite{bakery, blog}
 }
@@ -223,6 +265,16 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 			if err := s.store.CreateFunnel(ctx, uid, &f); err != nil {
 				return err
 			}
+		}
+		for d, text := range ds.notes {
+			n := store.Note{SiteID: site.ID, Day: dayStart(now.In(loc)).AddDate(0, 0, d-120).Format("2006-01-02"), Text: text}
+			if err := s.store.CreateNote(ctx, uid, &n); err != nil {
+				return err
+			}
+		}
+		lost := map[string][]pick[string]{} // a missing page → the pages with the link to it
+		for _, m := range ds.missing {
+			lost[m.v.path] = append(lost[m.v.path], pick[string]{m.v.from, m.w})
 		}
 		cache := store.VisitCache{}
 		var batch []store.Incoming
@@ -288,6 +340,9 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 				if src.utmCampaign == "november-cakes" && rng.Intn(100) < 70 {
 					entry = "/cakes/birthday"
 				}
+				if len(ds.missing) > 0 && src.utmCampaign == "" && rng.Intn(1000) < 14 {
+					entry = choose(rng, ds.missing).path // an old link somewhere
+				}
 				v := store.Visit{Hostname: ds.domain, Referrer: src.ref, Source: src.name, Channel: src.channel, UTMSource: src.utmSource, UTMMedium: src.utmMedium, UTMCampaign: src.utmCampaign,
 					Country: pl.country, Region: pl.region, City: pl.city, Device: dv.device, Browser: dv.browser, BrowserVersion: dv.bv, OS: dv.os, OSVersion: dv.osv, Language: choose(rng, ds.langs)}
 				who := fmt.Sprintf("demo%d-%d-%d", si, d, i)
@@ -324,9 +379,17 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 					read = max(now.Unix()-t, 1)
 				}
 				scroll := int(math.Min(100, 25+rng.Float64()*85))
+				if from, gone := lost[path]; gone {
+					e := first
+					e.TS, e.Name, e.Path, e.Props = t, "404", path, fmt.Sprintf(`{"from":%q}`, choose(rng, from))
+					batch = append(batch, e)
+				}
 				for _, ev := range ds.events(rng, path) {
 					e := first
 					e.TS, e.Name, e.Path, e.Props = t+read/2, ev.name, path, ev.props
+					if ev.rev > 0 {
+						e.Revenue, e.Currency = ev.rev, "EUR"
+					}
 					batch = append(batch, e)
 				}
 				if ds.domain == "maplebakery.example" && rng.Intn(100) < 25 {
@@ -337,10 +400,16 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 				}
 				eng := first
 				eng.TS, eng.Name, eng.Path, eng.Engaged, eng.Scroll = t+read, "engagement", path, read*1000*int64(60+rng.Intn(40))/100, scroll
+				if step == 0 {
+					eng.Vitals = demoVitals(rng, first.Visit.Device, ds.slow[path])
+				}
 				batch = append(batch, eng)
 				nexts, ok := ds.next[path]
 				if !ok {
 					nexts = []pick[string]{{"", 70}, {"/", 30}}
+				}
+				if _, gone := lost[path]; gone {
+					nexts = []pick[string]{{"", 55}, {"/", 45}}
 				}
 				nx := choose(rng, nexts)
 				if nx == "" || t+read+5 > now.Unix() {
@@ -361,4 +430,33 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 	s.reloadSites(ctx)
 	s.log.Info("demo data ready")
 	return nil
+}
+
+// demoVitals is how fast a page was for one demo visitor: phones are
+// slower, some pages are heavy, and now and then something is very slow.
+func demoVitals(rng *rand.Rand, device string, heavy float64) store.Vitals {
+	if heavy == 0 {
+		heavy = 1
+	}
+	f := 1.0
+	if device == "Phone" || device == "Tablet" {
+		f = 1.55
+	}
+	if rng.Intn(100) < 6 {
+		f *= 2.4 // a bad connection
+	}
+	ms := func(v float64) *int64 { n := int64(v); return &n }
+	ttfb := 90 + rng.ExpFloat64()*160*f
+	fcp := ttfb + (260+rng.ExpFloat64()*240)*f
+	lcp := fcp + (150+rng.ExpFloat64()*330)*f*heavy*heavy
+	v := store.Vitals{TTFB: ms(ttfb), FCP: ms(fcp), LCP: ms(lcp)}
+	cls := float64(int(rng.ExpFloat64()*28*heavy*heavy)) / 1000
+	if rng.Intn(100) < 45 {
+		cls = 0
+	}
+	v.CLS = &cls
+	if rng.Intn(100) < 72 { // most people press something
+		v.INP = ms((36 + rng.ExpFloat64()*44) * f)
+	}
+	return v
 }

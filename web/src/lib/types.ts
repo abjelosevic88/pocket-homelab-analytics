@@ -20,7 +20,8 @@ export type Settings = ConnFields & {
 }
 
 export interface SiteOptions {
-  outbound: boolean; downloads: boolean; clicks: boolean; hash: boolean; localhost: boolean; exclude: string[]; keep_days: number
+  outbound: boolean; downloads: boolean; clicks: boolean; forms: boolean; not_found: boolean; search: boolean; search_params: string[]; speed: boolean
+  hash: boolean; localhost: boolean; exclude: string[]; keep_days: number
   spike: boolean; quiet: boolean; weekly: boolean
 }
 
@@ -42,11 +43,25 @@ export interface Point { start: number; visitors: number; visits: number; pagevi
 export interface Filter { dim: string; value: string; not?: boolean }
 export interface Range { key: string; interval: 'hour' | 'day' | 'week' | 'month'; from: string; to: string; label: string }
 
-export interface Stats { site: Site; range: Range; filters: Filter[]; totals: Totals; previous: Totals; series: Point[]; previous_series: Point[]; now: number; live: number }
+export interface Note { id: number; site_id: number; day: string; text: string; created_at: string; ts?: number }
+
+export interface Stats { site: Site; range: Range; filters: Filter[]; totals: Totals; previous: Totals; series: Point[]; previous_series: Point[]; notes: Note[]; now: number; live: number }
 
 export interface Row { value: string; country?: string; visitors: number; visits?: number; pageviews?: number; events?: number; bounce_rate?: number; duration?: number; time_on_page?: number; scroll?: number }
 
-export interface Conversion { goal: Goal; visitors: number; conversions: number; rate: number }
+export interface Money { currency: string; amount: number }
+export interface Conversion { goal: Goal; visitors: number; conversions: number; rate: number; revenue?: Money[] }
+
+/** One speed measure: three of four page loads stayed under p75; n loads measured. */
+export interface Metric { p75: number; n: number }
+export interface SpeedRow { value: string; loads: number; lcp?: Metric; inp?: Metric; cls?: Metric; ttfb?: Metric; fcp?: Metric }
+export interface Speed { dim: string; all: SpeedRow; rows: SpeedRow[]; on: boolean }
+
+/** Visits by day of the week (0 = Sunday) and hour, in the site's time zone. */
+export interface When { cells: number[][]; max: number; visits: number; week_start: number; tz: string }
+
+export interface PathStep { value: string; times: number }
+export interface Paths { page: string; views: number; before: PathStep[]; after: PathStep[] }
 export interface StepCount { step: Step; visitors: number; dropped: number; rate: number; next: number }
 
 export interface LiveHit { ts: number; name: string; path: string; country: string; city: string; device: string; browser: string; source: string; visit_id: number }
@@ -57,4 +72,4 @@ export interface Visit {
   referrer: string; source: string; channel: string; utm_source: string; utm_medium: string; utm_campaign: string; utm_content: string; utm_term: string
   country: string; region: string; city: string; device: string; browser: string; browser_version: string; os: string; os_version: string; language: string
 }
-export interface Hit { id: number; visit_id: number; ts: number; name: string; path: string; props?: Record<string, string>; engaged: number; scroll: number }
+export interface Hit { id: number; visit_id: number; ts: number; name: string; path: string; props?: Record<string, string>; engaged: number; scroll: number; revenue?: number; currency?: string; lcp?: number; inp?: number; cls?: number }

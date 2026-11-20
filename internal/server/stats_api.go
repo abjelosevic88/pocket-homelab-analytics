@@ -199,8 +199,20 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// the period before, bucket for bucket (for the dashed line)
 	pb := bounds(sp.PFrom, sp.PTo, sp.Interval, st.WeekStart)
 	prevSeries, _ := s.store.Series(ctx, pq, pb)
+	// what happened on the days in the range, with the moment each day starts (for the chart)
+	type noteAt struct {
+		store.Note
+		TS int64 `json:"ts"`
+	}
+	notes := []noteAt{}
+	list, _ := s.store.ListNotes(ctx, site.UserID, site.ID, sp.FromDay, sp.ToDay)
+	for _, n := range list {
+		if d, err := time.ParseInLocation("2006-01-02", n.Day, sp.From.Location()); err == nil {
+			notes = append(notes, noteAt{n, d.Unix()})
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"site": s.siteView(ctx, site), "range": sp, "filters": q.Filters, "totals": totals, "previous": prev,
+		"site": s.siteView(ctx, site), "range": sp, "filters": q.Filters, "totals": totals, "previous": prev, "notes": notes,
 		"series": series, "previous_series": prevSeries, "now": time.Now().Unix(), "live": s.store.LiveNow(ctx, site.ID, time.Now().Unix()-300),
 	})
 }
@@ -212,6 +224,7 @@ func (s *Server) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, _ := s.queryFor(r, site)
+	q.Path = clip(r.URL.Query().Get("path"), 500)
 	dim := r.URL.Query().Get("dim")
 	limit := queryInt(r, "limit")
 	rows, err := s.store.Breakdown(r.Context(), q, dim, r.URL.Query().Get("event"), r.URL.Query().Get("key"), limit, queryInt(r, "offset"))

@@ -23,6 +23,7 @@ type Query struct {
 	To      int64
 	Filters []Filter
 	Goals   map[int64]Goal // for "goal" filters
+	Path    string         // event and property lists: only what happened on this page
 }
 
 // visitCols are the dimensions stored on a visit, by name.
@@ -274,10 +275,11 @@ type Row struct {
 // Dims a top list can be made of.
 var BreakdownDims = []string{"source", "channel", "referrer", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
 	"country", "region", "city", "device", "browser", "browser_version", "os", "os_version", "language", "hostname",
-	"page", "entry", "exit", "event", "outbound", "download", "click", "prop"}
+	"page", "entry", "exit", "event", "outbound", "download", "click", "contact", "form", "search", "notfound", "prop"}
 
-// propEvent names the events behind the link and click lists.
-var propEvent = map[string][2]string{"outbound": {"Outbound Link: Click", "url"}, "download": {"File Download", "url"}, "click": {"Click", "text"}}
+// propEvent names the events behind the link, click, form and search lists.
+var propEvent = map[string][2]string{"outbound": {"Outbound Link: Click", "url"}, "download": {"File Download", "url"}, "click": {"Click", "text"},
+	"contact": {"Contact Link: Click", "to"}, "form": {"Form: Submission", "form"}, "search": {"Search", "term"}}
 
 // Breakdown is a top list: visitors (and more) per value of dim. For
 // "prop", event and key say which event's which property.
@@ -311,18 +313,26 @@ func (s *Store) Breakdown(ctx context.Context, q Query, dim, event, key string, 
 			out = append(out, r)
 		}
 		return out, rows.Err()
-	case dim == "event" || dim == "prop" || propEvent[dim][0] != "":
+	case dim == "event" || dim == "prop" || dim == "notfound" || propEvent[dim][0] != "":
 		hw, ha := q.hitRange()
 		col, cond, args := "h.name", "h.name <> 'pageview'", []any{}
 		if pe, ok := propEvent[dim]; ok {
 			event, key = pe[0], pe[1]
 		}
-		if dim != "event" {
+		switch {
+		case dim == "notfound":
+			// pages that do not exist, by their address
+			col, cond = "h.path", "h.name = '404'"
+		case dim != "event":
 			if event == "" || key == "" {
 				return out, nil
 			}
-			col, cond = "COALESCE(json_extract(h.props, ?), '(none)')", "h.name = ?"
+			col, cond = "COALESCE(NULLIF(json_extract(h.props, ?), ''), '(none)')", "h.name = ?"
 			args = []any{`$."` + strings.ReplaceAll(key, `"`, ``) + `"`, event}
+		}
+		if q.Path != "" {
+			cond += " AND h.path = ?"
+			args = append(args, q.Path)
 		}
 		a := append(args, ha...)
 		rows, err := s.DB.QueryContext(ctx, `SELECT `+col+`, COUNT(DISTINCT v.visitor), COUNT(*) FROM hits h JOIN visits v ON v.id = h.visit_id
@@ -376,12 +386,19 @@ func (s *Store) Breakdown(ctx context.Context, q Query, dim, event, key string, 
 	return out, rows.Err()
 }
 
+// Money is an amount in one currency ("" = the event did not say which).
+type Money struct {
+	Currency string  `json:"currency"`
+	Amount   float64 `json:"amount"`
+}
+
 // Conversion is how a goal did in a range.
 type Conversion struct {
 	Goal        Goal    `json:"goal"`
-	Visitors    int     `json:"visitors"`    // who reached it
-	Conversions int     `json:"conversions"` // how often
-	Rate        float64 `json:"rate"`        // percent of all visitors
+	Visitors    int     `json:"visitors"`          // who reached it
+	Conversions int     `json:"conversions"`       // how often
+	Rate        float64 `json:"rate"`              // percent of all visitors
+	Revenue     []Money `json:"revenue,omitempty"` // what it brought, per currency, most first
 }
 
 // Conversions counts each goal.
@@ -397,6 +414,22 @@ func (s *Store) Conversions(ctx context.Context, q Query, goals []Goal, total in
 		}
 		if total > 0 {
 			c.Rate = round1(float64(c.Visitors) * 100 / float64(total))
+		}
+		if g.Kind == "event" && c.Conversions > 0 {
+			rows, err := s.DB.QueryContext(ctx, `SELECT h.currency, SUM(h.revenue) FROM hits h JOIN visits v ON v.id = h.visit_id WHERE h.revenue > 0 AND `+gc+` AND `+hw+` GROUP BY 1 ORDER BY 2 DESC LIMIT 5`, append(ga, ha...)...)
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var m Money
+				if err := rows.Scan(&m.Currency, &m.Amount); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				m.Amount = float64(int64(m.Amount*100+0.5)) / 100
+				c.Revenue = append(c.Revenue, m)
+			}
+			rows.Close()
 		}
 		out = append(out, c)
 	}
@@ -640,7 +673,7 @@ func (s *Store) GetVisit(ctx context.Context, siteID, id int64) (*Visit, []Hit, 
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, visit_id, ts, name, path, props, engaged, scroll FROM hits WHERE visit_id = ? ORDER BY ts, id LIMIT 500`, id)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, visit_id, ts, name, path, props, engaged, scroll, revenue, currency, lcp, inp, cls FROM hits WHERE visit_id = ? ORDER BY ts, id LIMIT 500`, id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -649,7 +682,7 @@ func (s *Store) GetVisit(ctx context.Context, siteID, id int64) (*Visit, []Hit, 
 	for rows.Next() {
 		var h Hit
 		var props string
-		if err := rows.Scan(&h.ID, &h.VisitID, &h.TS, &h.Name, &h.Path, &props, &h.Engaged, &h.Scroll); err != nil {
+		if err := rows.Scan(&h.ID, &h.VisitID, &h.TS, &h.Name, &h.Path, &props, &h.Engaged, &h.Scroll, &h.Revenue, &h.Currency, &h.LCP, &h.INP, &h.CLS); err != nil {
 			return nil, nil, err
 		}
 		if props != "" {
@@ -709,4 +742,223 @@ func (s *Store) VisitorsIn(ctx context.Context, siteID, from, to int64) int {
 	var n int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT visitor) FROM visits WHERE site_id = ? AND started >= ? AND started < ?`, siteID, from, to).Scan(&n)
 	return n
+}
+
+// ---- how fast the pages are ----
+
+// Metric is one speed measure over many page loads: the value three out
+// of four loads stayed under (the 75th percentile), and how many loads.
+type Metric struct {
+	P75 float64 `json:"p75"`
+	N   int     `json:"n"`
+}
+
+// SpeedRow is how fast one page (or device, country, browser) was.
+type SpeedRow struct {
+	Value   string  `json:"value"`
+	Loads   int     `json:"loads"`          // page loads measured
+	LCP     *Metric `json:"lcp,omitempty"`  // ms until the main content showed
+	INP     *Metric `json:"inp,omitempty"`  // ms the slowest press took
+	CLS     *Metric `json:"cls,omitempty"`  // how much the layout moved
+	TTFB    *Metric `json:"ttfb,omitempty"` // ms until the server answered
+	FCP     *Metric `json:"fcp,omitempty"`  // ms until something showed
+	samples [5][]float64
+}
+
+// speedDims are what speed can be split by, and the column for each.
+var speedDims = map[string]string{"page": "h.path", "device": "v.device", "browser": "v.browser", "os": "v.os", "country": "v.country"}
+
+// ValidSpeedDim reports whether speed can be split by dim.
+func ValidSpeedDim(d string) bool { _, ok := speedDims[d]; return ok }
+
+func p75(v []float64) *Metric {
+	if len(v) == 0 {
+		return nil
+	}
+	sort.Float64s(v)
+	i := (len(v)*3 + 3) / 4
+	return &Metric{P75: v[i-1], N: len(v)}
+}
+
+func (r *SpeedRow) finish() {
+	r.TTFB, r.FCP, r.LCP, r.INP, r.CLS = p75(r.samples[0]), p75(r.samples[1]), p75(r.samples[2]), p75(r.samples[3]), p75(r.samples[4])
+	r.samples = [5][]float64{}
+}
+
+// Speed is how fast the site was in a range: over all measured page loads,
+// and for the most loaded values of dim.
+func (s *Store) Speed(ctx context.Context, q Query, dim string, limit int) (SpeedRow, []SpeedRow, error) {
+	all := SpeedRow{}
+	col, ok := speedDims[dim]
+	if !ok {
+		col = "h.path"
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 10
+	}
+	hw, ha := q.hitRange()
+	pc, pa := q.pageCond("h")
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+col+`, h.ttfb, h.fcp, h.lcp, h.inp, h.cls FROM hits h JOIN visits v ON v.id = h.visit_id
+		WHERE h.name = 'pageview' AND (h.lcp IS NOT NULL OR h.ttfb IS NOT NULL OR h.fcp IS NOT NULL OR h.inp IS NOT NULL OR h.cls IS NOT NULL)
+		AND `+pc+` AND `+hw+` LIMIT 400000`, append(pa, ha...)...)
+	if err != nil {
+		return all, nil, err
+	}
+	defer rows.Close()
+	by := map[string]*SpeedRow{}
+	for rows.Next() {
+		var key string
+		var m [5]*float64
+		if err := rows.Scan(&key, &m[0], &m[1], &m[2], &m[3], &m[4]); err != nil {
+			return all, nil, err
+		}
+		r := by[key]
+		if r == nil {
+			r = &SpeedRow{Value: key}
+			by[key] = r
+		}
+		r.Loads++
+		all.Loads++
+		for i, v := range m {
+			if v != nil {
+				r.samples[i] = append(r.samples[i], *v)
+				all.samples[i] = append(all.samples[i], *v)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return all, nil, err
+	}
+	all.finish()
+	out := make([]SpeedRow, 0, len(by))
+	for _, r := range by {
+		r.finish()
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Loads != out[j].Loads {
+			return out[i].Loads > out[j].Loads
+		}
+		return out[i].Value < out[j].Value
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return all, out, nil
+}
+
+// ---- when they come ----
+
+// VisitStarts are the start times of the visits in a range (for the
+// week-by-hour picture; the caller knows the site's time zone).
+func (s *Store) VisitStarts(ctx context.Context, q Query) ([]int64, error) {
+	w, a := q.visitRange()
+	rows, err := s.DB.QueryContext(ctx, `SELECT v.started FROM visits v WHERE `+w, a...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var t int64
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ---- the way through a page ----
+
+// PathStep is a page people were on before or after another, and how often.
+// Value "" is the edge of the visit: they came in here, or left from here.
+type PathStep struct {
+	Value string `json:"value"`
+	Times int    `json:"times"`
+}
+
+// Paths is where people were before a page and where they went after it.
+type Paths struct {
+	Page   string     `json:"page"`
+	Views  int        `json:"views"` // times the page was seen in a visit (reloads count once)
+	Before []PathStep `json:"before"`
+	After  []PathStep `json:"after"`
+}
+
+// PagePaths walks every visit that saw the page (a path, * for any part).
+func (s *Store) PagePaths(ctx context.Context, q Query, page string, limit int) (*Paths, error) {
+	out := &Paths{Page: page, Before: []PathStep{}, After: []PathStep{}}
+	if limit <= 0 || limit > 100 {
+		limit = 8
+	}
+	has := false
+	for _, f := range q.Filters {
+		if f.Dim == "page" && f.Value == page && !f.Not {
+			has = true
+		}
+	}
+	if !has {
+		q.Filters = append(append([]Filter{}, q.Filters...), Filter{Dim: "page", Value: page})
+	}
+	hw, ha := q.hitRange()
+	rows, err := s.DB.QueryContext(ctx, `SELECT h.visit_id, h.path FROM hits h JOIN visits v ON v.id = h.visit_id WHERE h.name = 'pageview' AND `+hw+` ORDER BY h.visit_id, h.ts, h.id`, ha...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	before, after := map[string]int{}, map[string]int{}
+	var seq []string
+	walk := func() {
+		for i, p := range seq {
+			if !GlobMatch(page, p) {
+				continue
+			}
+			out.Views++
+			prev, next := "", ""
+			if i > 0 {
+				prev = seq[i-1]
+			}
+			if i+1 < len(seq) {
+				next = seq[i+1]
+			}
+			before[prev]++
+			after[next]++
+		}
+		seq = seq[:0]
+	}
+	var cur int64 = -1
+	for rows.Next() {
+		var vid int64
+		var path string
+		if err := rows.Scan(&vid, &path); err != nil {
+			return nil, err
+		}
+		if vid != cur {
+			walk()
+			cur = vid
+		}
+		if n := len(seq); n == 0 || seq[n-1] != path { // a reload is the same page still
+			seq = append(seq, path)
+		}
+	}
+	walk()
+	top := func(m map[string]int) []PathStep {
+		list := make([]PathStep, 0, len(m))
+		for k, n := range m {
+			list = append(list, PathStep{Value: k, Times: n})
+		}
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].Times != list[j].Times {
+				return list[i].Times > list[j].Times
+			}
+			return list[i].Value < list[j].Value
+		})
+		if len(list) > limit {
+			list = list[:limit]
+		}
+		return list
+	}
+	out.Before, out.After = top(before), top(after)
+	return out, rows.Err()
 }

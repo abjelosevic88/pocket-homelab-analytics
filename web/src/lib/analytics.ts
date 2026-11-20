@@ -20,6 +20,34 @@ export const fmtDur = (sec: number | undefined | null): string => {
 
 export const fmtPct = (n: number | undefined | null) => `${Math.round(n || 0)}%`
 
+/** Money in its currency; without one, the plain number. */
+export function fmtMoney(amount: number, currency = ''): string {
+  const digits = Math.abs(amount) >= 1000 || Number.isInteger(amount) ? 0 : 2
+  try {
+    return new Intl.NumberFormat(undefined, currency ? { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits } : { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(amount)
+  } catch { return `${amount.toFixed(digits)} ${currency}`.trim() }
+}
+
+// ---- how fast: what counts as good, by Google's Core Web Vitals ----
+
+export type SpeedKey = 'lcp' | 'inp' | 'cls' | 'ttfb' | 'fcp'
+export type Rating = 'good' | 'ok' | 'slow'
+/** Up to the first number is good, up to the second could be better, beyond is slow. */
+export const SPEED: Record<SpeedKey, { label: string; short: string; tech: string; good: number; ok: number; help: string }> = {
+  lcp: { label: 'The page shows in', short: 'Shows in', tech: 'Largest Contentful Paint', good: 2500, ok: 4000, help: 'Until the main part of the page is on the screen. Good: up to 2.5 seconds.' },
+  inp: { label: 'A press answers in', short: 'Answers in', tech: 'Interaction to Next Paint', good: 200, ok: 500, help: 'From a tap, click or key to the page showing a result. Good: up to 200 milliseconds.' },
+  cls: { label: 'The layout moves', short: 'Moves', tech: 'Cumulative Layout Shift', good: 0.1, ok: 0.25, help: 'How much things jump around while the page loads (0 = not at all). Good: up to 0.1.' },
+  ttfb: { label: 'The server answers in', short: 'Server', tech: 'Time to First Byte', good: 800, ok: 1800, help: 'From asking for the page to its first bytes arriving. Good: up to 0.8 seconds.' },
+  fcp: { label: 'Something shows in', short: 'First sign', tech: 'First Contentful Paint', good: 1800, ok: 3000, help: 'Until the first text or picture is on the screen. Good: up to 1.8 seconds.' },
+}
+export const rate = (k: SpeedKey, v: number): Rating => (v <= SPEED[k].good ? 'good' : v <= SPEED[k].ok ? 'ok' : 'slow')
+export const RATING_WORD: Record<Rating, string> = { good: 'Good', ok: 'Could be better', slow: 'Slow' }
+export function fmtSpeed(k: SpeedKey, v: number): string {
+  if (k === 'cls') return v < 0.005 ? '0' : v.toFixed(2)
+  if (v < 1000) return `${Math.round(v)} ms`
+  return `${(v / 1000).toFixed(v < 10000 ? 1 : 0)} s`
+}
+
 /** The change from before to now, and whether it is good news. */
 export function delta(now: number, before: number, lowerIsBetter = false): { text: string; dir: 'up' | 'down' | 'flat'; good: boolean } | null {
   if (!before) return now ? null : null
@@ -54,9 +82,16 @@ export const DIM_LABEL: Record<string, string> = {
   utm_content: 'Campaign content', utm_term: 'Campaign term', country: 'Country', region: 'Region', city: 'City', device: 'Device', browser: 'Browser',
   browser_version: 'Browser version', os: 'System', os_version: 'System version', language: 'Language', hostname: 'Host', page: 'Page', entry: 'Entry page',
   exit: 'Exit page', event: 'Event', goal: 'Goal', outbound: 'Link', download: 'File', click: 'Clicked',
+  contact: 'Email or phone', form: 'Form', search: 'Searched for', notfound: 'Missing page', prop: 'Detail', from: 'The page with the link',
 }
 
-const EVENT_WORDS: Record<string, string> = { 'Outbound Link: Click': 'Followed a link out', 'File Download': 'Downloaded a file', Click: 'Pressed a link or button', '404': 'Page not found' }
+/** The lists that count things people did (not visits): their number column says "People". */
+export const DID_DIMS = new Set(['event', 'outbound', 'download', 'click', 'contact', 'form', 'search', 'notfound', 'prop', 'from'])
+
+const EVENT_WORDS: Record<string, string> = {
+  'Outbound Link: Click': 'Followed a link out', 'File Download': 'Downloaded a file', Click: 'Pressed a link or button', '404': 'Landed on a page that does not exist',
+  'Contact Link: Click': 'Pressed an email or phone link', 'Form: Submission': 'Sent a form', Search: 'Searched the site',
+}
 /** Built-in event names in plain words. */
 export const eventLabel = (n: string) => EVENT_WORDS[n] || n
 
@@ -124,9 +159,21 @@ export function useView() {
   return { range, from, to, interval, filters, query, setRange, setInterval, addFilter, removeFilter, clearFilters }
 }
 
-/** The label under a chart point. */
-export function bucketLabel(ts: number, interval: string, long = false): string {
+/** A moment as a clock in the site's time zone would show it (a day there starts at its own midnight, not the browser's). */
+export function inZone(ts: number, tz?: string): Date {
   const d = new Date(ts * 1000)
+  if (!tz) return d
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(d)
+    const g = (t: string) => Number(parts.find(x => x.type === t)?.value)
+    const w = new Date(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'))
+    return Number.isNaN(w.getTime()) ? d : w
+  } catch { return d }
+}
+
+/** The label under a chart point, in the site's time zone. */
+export function bucketLabel(ts: number, interval: string, long = false, tz?: string): string {
+  const d = inZone(ts, tz)
   if (interval === 'hour') return fmtTime(d)
   if (interval === 'month') return d.toLocaleDateString(undefined, { month: 'short', year: long ? 'numeric' : '2-digit' })
   const s = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(long ? { year: 'numeric' } : {}) })

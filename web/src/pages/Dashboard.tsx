@@ -6,12 +6,13 @@ import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import { useData } from '../lib/data'
 import type { Conversion, Funnel, Row, Site, StepCount, Stats } from '../lib/types'
-import { DIM_LABEL, FILTERABLE, RANGES, countryName, delta, deviceIcon, flag, fmtDur, fmtNum, fmtPct, useView, valueLabel } from '../lib/analytics'
+import { DID_DIMS, DIM_LABEL, FILTERABLE, RANGES, countryName, delta, deviceIcon, eventLabel, flag, fmtDur, fmtMoney, fmtNum, fmtPct, useView, valueLabel } from '../lib/analytics'
 import { Empty, Loading, Modal, type MenuItem, MenuButton, Segmented, errMsg, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { MainChart } from '../components/MainChart'
 import { useCrumb } from '../components/Layout'
 import { Select } from '../components/Select'
+import { NotesSheet, PagePaths, Speed, When } from '../components/Insights'
 
 type Metric = 'visitors' | 'visits' | 'pageviews' | 'views_per_visit' | 'bounce_rate' | 'duration'
 
@@ -33,7 +34,9 @@ export default function Dashboard() {
   const [err, setErr] = useState('')
   const [metric, setMetric] = useState<Metric>('visitors')
   const [explain, setExplain] = useState(false)
+  const [notes, setNotes] = useState(false)
   useCrumb(site?.label)
+  const reload = () => api.get<Stats>(`${V1}/sites/${id}/stats?${view.query}`).then(setStats).catch(() => {})
 
   useEffect(() => {
     let live = true
@@ -54,6 +57,9 @@ export default function Dashboard() {
   if (!stats || !site) return <Loading />
   if (!site.installed) return <NotYet site={site} />
   const m = METRICS.find(x => x.key === metric)!
+  // the page looked at, when the filters name exactly one: its way in and out shows
+  const onPage = view.filters.find(f => f.dim === 'page' && !f.not)?.value
+  const onEvent = view.filters.find(f => f.dim === 'event' && !f.not)?.value
   return (
     <div className="dash">
       <div className="dash-head">
@@ -83,16 +89,18 @@ export default function Dashboard() {
       <div className="card chart-card">
         <div className="chart-head">
           <span className="muted small">{m.label} · {stats.range.label}<span className="legend-prev">the period before</span></span>
+          <button type="button" className="btn ghost sm" onClick={() => setNotes(true)} title="Mark what happened on a day"><Icon name="flag" size={14} />Notes{stats.notes?.length ? <span className="count muted">{stats.notes.length}</span> : null}</button>
           <IntervalPicker stats={stats} />
         </div>
-        <MainChart starts={stats.series.map(p => p.start)} values={stats.series.map(m.series)} previous={stats.previous_series.map(m.series)} interval={stats.range.interval} format={m.fmt} now={stats.now} label={m.label} />
+        <MainChart starts={stats.series.map(p => p.start)} values={stats.series.map(m.series)} previous={stats.previous_series.map(m.series)} interval={stats.range.interval} format={m.fmt} now={stats.now} label={m.label} notes={stats.notes} tz={stats.site.tz} />
       </div>
       <div className="panels">
+        {onPage && <PagePaths site={site} page={onPage} />}
         <Panel site={site} title="Where they came from" icon="compass" tabs={[
           { dim: 'channel', label: 'Channels' }, { dim: 'source', label: 'Sources' }, { dim: 'referrer', label: 'Links' }, { dim: 'utm_campaign', label: 'Campaigns' },
         ]} />
         <Panel site={site} title="What they read" icon="file" tabs={[
-          { dim: 'page', label: 'Pages', extra: 'page' }, { dim: 'entry', label: 'Came in on' }, { dim: 'exit', label: 'Left from' },
+          { dim: 'page', label: 'Pages', extra: 'page' }, { dim: 'entry', label: 'Came in on' }, { dim: 'exit', label: 'Left from' }, ...(site.options.not_found ? [{ dim: 'notfound', label: 'Not found' }] : []),
         ]} />
         <Panel site={site} title="Where they are" icon="globe" tabs={[
           { dim: 'country', label: 'Countries' }, { dim: 'region', label: 'Regions' }, { dim: 'city', label: 'Cities' }, { dim: 'language', label: 'Languages' },
@@ -101,12 +109,18 @@ export default function Dashboard() {
           { dim: 'device', label: 'Devices' }, { dim: 'browser', label: 'Browsers' }, { dim: 'os', label: 'Systems' },
         ]} />
         <Goals site={site} />
-        <Panel site={site} title="What they did" icon="zap" tabs={[
-          { dim: 'event', label: 'Events' }, { dim: 'outbound', label: 'Links out' }, { dim: 'download', label: 'Files' }, ...(site.options.clicks ? [{ dim: 'click', label: 'Clicks' }] : []),
+        {onEvent ? <EventDetails site={site} event={onEvent} /> : <Panel site={site} title="What they did" icon="zap" tabs={[
+          { dim: 'event', label: 'Events' }, ...(site.options.forms ? [{ dim: 'form', label: 'Forms' }] : []), ...(site.options.search ? [{ dim: 'search', label: 'Searches' }] : []), ...(site.options.clicks ? [{ dim: 'click', label: 'Clicks' }] : []),
+        ]} />}
+        <Panel site={site} title="Links they followed" icon="external" tabs={[
+          { dim: 'outbound', label: 'Other sites' }, { dim: 'download', label: 'Files' }, { dim: 'contact', label: 'Email & phone' },
         ]} />
+        <When site={site} />
+        <Speed site={site} />
         <Funnels site={site} />
       </div>
       {explain && <ExplainSheet site={site} onClose={() => setExplain(false)} />}
+      {notes && <NotesSheet site={site} onClose={() => setNotes(false)} onChanged={reload} />}
     </div>
   )
 }
@@ -180,6 +194,8 @@ function rowLabel(dim: string, r: Row): React.ReactNode {
   if (dim === 'device') return <><Icon name={deviceIcon(r.value)} size={14} className="muted" />{r.value}</>
   if (dim === 'source' && r.value !== 'Direct') return <><Favicon host={r.value} />{r.value}</>
   if (dim === 'referrer') return <><Favicon host={r.value.split('/')[0]} />{r.value}</>
+  if (dim === 'contact') return <><Icon name={r.value.includes('@') ? 'mail' : 'phone'} size={14} className="muted" />{r.value}</>
+  if (dim === 'from') return r.value === '(none)' ? <i className="muted">Not known (typed, a bookmark, an app)</i> : r.value.startsWith('/') ? <><Icon name="file" size={14} className="muted" />{r.value}<span className="muted small">this site</span></> : <><Favicon host={r.value.split('/')[0]} />{r.value}</>
   return valueLabel(dim, r.value)
 }
 
@@ -206,6 +222,8 @@ function Panel({ site, title, icon, tabs }: { site: Site; title: string; icon: s
   const t = tabs.find(x => x.dim === tab) || tabs[0]
   const rows = useRows(site.id, t.dim, 8)
   const [more, setMore] = useState(false)
+  const [missing, setMissing] = useState('')
+  const onPick = t.dim === 'notfound' ? (r: Row) => setMissing(r.value) : undefined
   return (
     <section className="card panel">
       <div className="panel-head">
@@ -214,23 +232,35 @@ function Panel({ site, title, icon, tabs }: { site: Site; title: string; icon: s
           {tabs.map(x => <button key={x.dim} type="button" role="tab" aria-selected={x.dim === t.dim} className={`ptab ${x.dim === t.dim ? 'on' : ''}`} onClick={() => setTab(x.dim)}>{x.label}</button>)}
         </div>}
       </div>
-      <RowList dim={t.dim} rows={rows} />
+      <RowList dim={t.dim} rows={rows} onPick={onPick} />
       {rows && rows.length >= 8 && <button type="button" className="panel-more" onClick={() => setMore(true)}>Show all<Icon name="chevron-right" size={14} /></button>}
-      {more && <AllRows site={site} tab={t} onClose={() => setMore(false)} />}
+      {more && <AllRows site={site} tab={t} onClose={() => setMore(false)} onPick={onPick} />}
+      {missing && <MissingSheet site={site} path={missing} onClose={() => setMissing('')} />}
     </section>
   )
 }
 
-function RowList({ dim, rows, wide }: { dim: string; rows: Row[] | null; wide?: boolean }) {
+const EMPTY: Record<string, string> = {
+  event: 'No events in this time. Your own events show here: a sign-up, an order, a button.',
+  utm_campaign: 'No campaign links (utm_campaign) in this time. Make one under Site settings → Campaign links.',
+  notfound: 'Nobody landed on a page that does not exist. Good.',
+  search: 'No searches in this time. They are counted when the address of your search page holds the words (?q=…).',
+  form: 'No forms sent in this time.',
+  contact: 'No email or phone links pressed in this time.',
+  outbound: 'No links to other sites followed in this time.',
+  download: 'No files downloaded in this time.',
+}
+
+function RowList({ dim, rows, wide, onPick, pickTitle, head }: { dim: string; rows: Row[] | null; wide?: boolean; onPick?: (r: Row) => void; pickTitle?: string; head?: string }) {
   const view = useView()
   if (!rows) return <div className="rows rows-loading"><Loading /></div>
-  if (!rows.length) return <div className="rows rows-empty muted small">{dim === 'event' ? 'No events in this time. Outbound links, downloads and your own events show here.' : dim === 'utm_campaign' ? 'No campaign links (utm_campaign) in this time.' : 'Nothing in this time.'}</div>
+  if (!rows.length) return <div className="rows rows-empty muted small">{EMPTY[dim] || 'Nothing in this time.'}</div>
   const max = Math.max(1, ...rows.map(r => r.visitors))
   const can = FILTERABLE.has(dim) && !(dim === 'event')
   const isPage = dim === 'page'
   return (
     <div className={`rows ${wide ? 'wide' : ''}`}>
-      <div className="rows-h"><span>{DIM_LABEL[dim] || dim}</span>{wide && isPage && <><span className="num">Time</span><span className="num">Read</span></>}{wide && !isPage && rows[0].visits !== undefined && rows[0].visits > 0 && <span className="num">Left at once</span>}<span className="num">{dim === 'event' || dim === 'outbound' || dim === 'download' || dim === 'click' ? 'People' : 'Visitors'}</span></div>
+      <div className="rows-h"><span>{head || DIM_LABEL[dim] || dim}</span>{wide && isPage && <><span className="num">Time</span><span className="num">Read</span></>}{wide && !isPage && rows[0].visits !== undefined && rows[0].visits > 0 && <span className="num">Left at once</span>}<span className="num">{DID_DIMS.has(dim) ? 'People' : 'Visitors'}</span></div>
       {rows.map(r => {
         const inner = <>
           <span className="rbar" style={{ width: `${(r.visitors / max) * 100}%` }} />
@@ -239,16 +269,16 @@ function RowList({ dim, rows, wide }: { dim: string; rows: Row[] | null; wide?: 
           {wide && !isPage && r.visits !== undefined && r.visits > 0 && <span className="num muted">{fmtPct(r.bounce_rate)}</span>}
           <span className="num tnum">{fmtNum(r.visitors)}</span>
         </>
-        return can
-          ? <button key={r.value + (r.country || '')} type="button" className="rrow" title={`Only ${DIM_LABEL[dim]?.toLowerCase()} ${valueLabel(dim, r.value)}`} onClick={() => view.addFilter(dim, r.value)}>{inner}</button>
-          : dim === 'event' ? <button key={r.value} type="button" className="rrow" title={`Only visits with “${r.value}”`} onClick={() => view.addFilter('event', r.value)}>{inner}</button>
+        return onPick ? <button key={r.value} type="button" className="rrow" title={pickTitle || 'Where the link to it is'} onClick={() => onPick(r)}>{inner}</button>
+          : can ? <button key={r.value + (r.country || '')} type="button" className="rrow" title={`Only ${DIM_LABEL[dim]?.toLowerCase()} ${valueLabel(dim, r.value)}`} onClick={() => view.addFilter(dim, r.value)}>{inner}</button>
+          : dim === 'event' ? <button key={r.value} type="button" className="rrow" title={`Only visits with “${eventLabel(r.value)}”, and its details`} onClick={() => view.addFilter('event', r.value)}>{inner}</button>
           : <div key={r.value + (r.country || '')} className="rrow static">{inner}</div>
       })}
     </div>
   )
 }
 
-function AllRows({ site, tab, onClose }: { site: Site; tab: Tab; onClose: () => void }) {
+function AllRows({ site, tab, onClose, onPick }: { site: Site; tab: Tab; onClose: () => void; onPick?: (r: Row) => void }) {
   const view = useView()
   const rows = useRows(site.id, tab.dim, 100)
   return (
@@ -256,8 +286,47 @@ function AllRows({ site, tab, onClose }: { site: Site; tab: Tab; onClose: () => 
       <a className="btn" href={`${V1}/sites/${site.id}/export.csv?${view.query}&dim=${tab.dim}`} download><Icon name="download" size={15} />Download as a spreadsheet</a>
       <button type="button" className="btn primary" onClick={onClose}>Done</button>
     </>}>
-      <div onClick={e => { if ((e.target as HTMLElement).closest('.rrow:not(.static)')) onClose() }}><RowList dim={tab.dim} rows={rows} wide /></div>
+      <div onClick={e => { if ((e.target as HTMLElement).closest('.rrow:not(.static)')) onClose() }}><RowList dim={tab.dim} rows={rows} wide onPick={onPick} /></div>
     </Modal>
+  )
+}
+
+/** A page that does not exist: the pages whose links lead to it. */
+function MissingSheet({ site, path, onClose }: { site: Site; path: string; onClose: () => void }) {
+  const rows = useRows(site.id, 'prop', 50, `&event=404&key=from&path=${encodeURIComponent(path)}`)
+  return (
+    <Modal title={<>Who links to <code>{path}</code></>} onClose={onClose} size="lg" footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      <p className="muted small note-lead">This page does not exist, yet people land on it. These are the pages with the link: fix the link there, or send this address on to the right page.</p>
+      <RowList dim="from" rows={rows} wide />
+    </Modal>
+  )
+}
+
+/** One event up close: what was sent with it (plan: pro, type: pickup…). */
+function EventDetails({ site, event }: { site: Site; event: string }) {
+  const view = useView()
+  const [keys, setKeys] = useState<string[] | null>(null)
+  const [key, setKey] = useState('')
+  useEffect(() => {
+    let live = true
+    setKeys(null)
+    api.get<{ keys?: string[] }>(`${V1}/sites/${site.id}/events?event=${encodeURIComponent(event)}`).then(r => { if (live) { setKeys(r.keys || []); setKey(k => (r.keys || []).includes(k) ? k : (r.keys || [])[0] || '') } }).catch(() => { if (live) setKeys([]) })
+    return () => { live = false }
+  }, [site.id, event])
+  const rows = useRows(site.id, 'prop', 8, `&event=${encodeURIComponent(event)}&key=${encodeURIComponent(key)}`)
+  return (
+    <section className="card panel">
+      <div className="panel-head">
+        <h3><Icon name="zap" size={15} /><span className="ellipsis">{eventLabel(event)}</span></h3>
+        <button type="button" className="btn ghost sm" onClick={() => view.removeFilter('event')}><Icon name="chevron-left" size={14} />All events</button>
+      </div>
+      {!keys ? <div className="rows rows-loading"><Loading /></div>
+        : !keys.length ? <div className="rows rows-empty muted small">Nothing more was sent with this event. Details come with it like this: <code>pocket('{event}', {'{'} props: {'{'} plan: 'pro' {'}'} {'}'})</code></div>
+        : <>
+          {keys.length > 1 && <div className="ptabs detail-keys" role="tablist">{keys.map(k => <button key={k} type="button" role="tab" aria-selected={k === key} className={`ptab ${k === key ? 'on' : ''}`} onClick={() => setKey(k)}>{k}</button>)}</div>}
+          <RowList dim="prop" head={key} rows={key ? rows : null} />
+        </>}
+    </section>
   )
 }
 
@@ -272,6 +341,7 @@ function Goals({ site }: { site: Site }) {
     return () => { live = false }
   }, [site.id, view.query])
   const goals = data?.goals
+  const money = !!goals?.some(g => g.revenue?.length)
   return (
     <section className="card panel">
       <div className="panel-head">
@@ -280,13 +350,14 @@ function Goals({ site }: { site: Site }) {
       </div>
       {!goals ? <div className="rows rows-loading"><Loading /></div>
         : !goals.length ? <div className="rows rows-empty muted small">Goals count what matters: an order, a sign-up, a page reached. <Link to={`/sites/${site.id}/settings/goals`}>Add your first goal</Link>.</div>
-        : <div className="rows">
-          <div className="rows-h"><span>Goal</span><span className="num">Rate</span><span className="num">People</span></div>
+        : <div className={`rows ${money ? 'has-money' : ''}`}>
+          <div className="rows-h"><span>Goal</span>{money && <span className="num money">Brought</span>}<span className="num rate">Rate</span><span className="num">People</span></div>
           {goals.map(g => (
             <button key={g.goal.id} type="button" className="rrow" title="Only visits that reached it" onClick={() => view.addFilter('goal', String(g.goal.id))}>
               <span className="rbar goal" style={{ width: `${Math.min(100, g.rate)}%` }} />
               <span className="rlabel ellipsis"><Icon name={g.goal.kind === 'event' ? 'zap' : 'file'} size={13} className="muted" />{g.goal.name}</span>
-              <span className="num muted">{g.rate.toFixed(1)}%</span>
+              {money && <span className="num money tnum" title={(g.revenue || []).map(m => fmtMoney(m.amount, m.currency)).join(' + ')}>{g.revenue?.length ? <>{fmtMoney(g.revenue[0].amount, g.revenue[0].currency)}{g.revenue.length > 1 && <span className="muted"> +{g.revenue.length - 1}</span>}</> : <span className="muted">—</span>}</span>}
+              <span className="num muted rate">{g.rate.toFixed(1)}%</span>
               <span className="num tnum">{fmtNum(g.visitors)}</span>
             </button>
           ))}

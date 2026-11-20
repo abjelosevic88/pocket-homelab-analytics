@@ -63,6 +63,97 @@ type eventIn struct {
 	Hash     any             `json:"h"`
 	Engaged  int64           `json:"e"`
 	Scroll   int             `json:"sd"`
+	Vitals   *vitalsIn       `json:"v"` // engagement: how fast the page was
+	Revenue  json.RawMessage `json:"$"` // an event's money: { amount, currency }
+}
+
+// vitalsIn is how fast the page was, as the script measured it: t = the
+// server answered, f = something showed, l = the main content showed,
+// i = the slowest press (all milliseconds), c = how much the layout moved.
+type vitalsIn struct {
+	T *float64 `json:"t"`
+	F *float64 `json:"f"`
+	L *float64 `json:"l"`
+	I *float64 `json:"i"`
+	C *float64 `json:"c"`
+}
+
+// clean keeps what can be true: up to two minutes, a layout shift up to 10.
+func (v *vitalsIn) clean() store.Vitals {
+	var out store.Vitals
+	if v == nil {
+		return out
+	}
+	ms := func(f *float64) *int64 {
+		if f == nil || *f <= 0 || *f > 120000 {
+			return nil
+		}
+		n := int64(*f + 0.5)
+		if n == 0 {
+			n = 1
+		}
+		return &n
+	}
+	out.TTFB, out.FCP, out.LCP, out.INP = ms(v.T), ms(v.F), ms(v.L), ms(v.I)
+	if v.C != nil && *v.C >= 0 && *v.C <= 10 {
+		c := float64(int64(*v.C*1000+0.5)) / 1000
+		out.CLS = &c
+	}
+	return out
+}
+
+// The events the script sends by itself.
+const (
+	evOutbound = "Outbound Link: Click"
+	evDownload = "File Download"
+	evClick    = "Click"
+	evContact  = "Contact Link: Click" // an email or a phone link
+	evForm     = "Form: Submission"
+	evNotFound = "404"
+	evSearch   = "Search"
+)
+
+// cleanRevenue reads an event's money: { amount: 12.5 | "12.50", currency: "EUR" }.
+func cleanRevenue(raw json.RawMessage) (float64, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, ""
+	}
+	var m struct {
+		Amount   any    `json:"amount"`
+		Currency string `json:"currency"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return 0, ""
+	}
+	var amount float64
+	switch t := m.Amount.(type) {
+	case float64:
+		amount = t
+	case string:
+		amount, _ = strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(t, ",", ".")), 64)
+	}
+	if amount <= 0 || amount > 1e9 || amount != amount {
+		return 0, ""
+	}
+	cur := strings.ToUpper(strings.TrimSpace(m.Currency))
+	if len(cur) != 3 || strings.Trim(cur, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+		cur = ""
+	}
+	return float64(int64(amount*100+0.5)) / 100, cur
+}
+
+// searchTerm is what someone searched for on the site: the first of the
+// site's search names in the address that has words.
+func searchTerm(q url.Values, names []string) string {
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n == "" {
+			continue
+		}
+		if t := strings.Join(strings.Fields(strings.ToLower(q.Get(n))), " "); t != "" {
+			return clip(t, 80)
+		}
+	}
+	return ""
 }
 
 func cors(w http.ResponseWriter) {
@@ -162,8 +253,14 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 		if name == "engagement" {
 			hit.Engaged = min(max(in.Engaged, 0), 30*60*1000)
 			hit.Scroll = min(max(in.Scroll, 0), 100)
+			if site.Options.Speed {
+				hit.Vitals = in.Vitals.clean()
+			}
 		} else {
 			hit.Props = cleanProps(in.Props)
+			if name != "pageview" {
+				hit.Revenue, hit.Currency = cleanRevenue(in.Revenue)
+			}
 			ref := ""
 			if in.Referrer != nil {
 				ref = *in.Referrer
@@ -178,9 +275,22 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 		if !s.enqueue(hit) {
 			return "busy"
 		}
+		// a page of search results: what was searched for, as an event of its own
+		if name == "pageview" && site.Options.Search {
+			if term := searchTerm(page.Query(), site.Options.SearchParams); term != "" {
+				sh := hit
+				sh.Name, sh.Props = evSearch, toJSONString(map[string]string{"term": term})
+				s.enqueue(sh)
+			}
+		}
 		kept = "ok"
 	}
 	return kept
+}
+
+func toJSONString(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // refuse says why a site does not keep this hit ("" = it does).
@@ -197,19 +307,23 @@ func (s *Server) refuse(site *store.Site, host, path, name string) string {
 			return "excluded"
 		}
 	}
+	on := true
 	switch name {
-	case "Outbound Link: Click":
-		if !site.Options.Outbound {
-			return "off"
-		}
-	case "File Download":
-		if !site.Options.Downloads {
-			return "off"
-		}
-	case "Click":
-		if !site.Options.Clicks {
-			return "off"
-		}
+	case evOutbound, evContact:
+		on = site.Options.Outbound
+	case evDownload:
+		on = site.Options.Downloads
+	case evClick:
+		on = site.Options.Clicks
+	case evForm:
+		on = site.Options.Forms
+	case evNotFound:
+		on = site.Options.NotFound
+	case evSearch:
+		on = site.Options.Search
+	}
+	if !on {
+		return "off"
 	}
 	return ""
 }

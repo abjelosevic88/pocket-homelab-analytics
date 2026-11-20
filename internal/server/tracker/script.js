@@ -12,6 +12,9 @@
   var outbound = !s.hasAttribute('data-no-outbound')
   var downloads = !s.hasAttribute('data-no-downloads')
   var clicks = s.hasAttribute('data-clicks')
+  var forms = !s.hasAttribute('data-no-forms')
+  var speed = !s.hasAttribute('data-no-speed')
+  var missing = !s.hasAttribute('data-no-404')
   var exts = (attr('data-file-types') || 'pdf,zip,dmg,pkg,exe,msi,iso,img,apk,deb,rpm,gz,tgz,7z,rar,csv,xls,xlsx,doc,docx,ppt,pptx,epub,mp3,mp4,mov,txt,json').split(',')
 
   // "Don't count me": ?pocket_ignore=1 once, in this browser
@@ -30,7 +33,8 @@
     var p = { n: name, u: opts.u || l.href, d: domain, r: opts.r === undefined ? null : opts.r, w: w.innerWidth }
     if (hash) p.h = 1
     if (opts.props) p.p = opts.props
-    if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd }
+    if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd; if (opts.v) p.v = opts.v }
+    if (opts.rev) p.$ = opts.rev
     var body = JSON.stringify(p)
     try {
       if (n.sendBeacon && n.sendBeacon(api, new Blob([body], { type: 'text/plain' }))) { cb && cb(); return }
@@ -38,6 +42,50 @@
     try {
       fetch(api, { method: 'POST', body: body, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).then(function () { cb && cb() }, function () { cb && cb() })
     } catch (e) { cb && cb() }
+  }
+
+  // ---- how fast the page was: only the page the browser loaded, and only
+  // when it was in front from the start ----
+  var vit = {}, hid = d.visibilityState !== 'visible', loaded = l.href, PO = w.PerformanceObserver
+  function watch(type, fn, more) {
+    try {
+      if ((PO.supportedEntryTypes || []).indexOf(type) < 0) return
+      var o = { type: type, buffered: true }
+      if (more) o.durationThreshold = more
+      new PO(function (list) { list.getEntries().forEach(fn) }).observe(o)
+    } catch (e) {}
+  }
+  if (speed && PO && !hid) {
+    try {
+      var nav = performance.getEntriesByType('navigation')[0]
+      if (nav && nav.responseStart > 0) vit.t = Math.round(nav.responseStart)
+    } catch (e) {}
+    watch('paint', function (e) { if (e.name === 'first-contentful-paint' && !hid) vit.f = Math.round(e.startTime) })
+    watch('largest-contentful-paint', function (e) { if (!hid) vit.l = Math.round(e.startTime) })
+    // how much the layout moved: the worst burst of shifts (under a second apart, five seconds at most)
+    var cv = 0, cf = 0, cl = 0
+    if ((PO.supportedEntryTypes || []).indexOf('layout-shift') >= 0) vit.c = 0
+    watch('layout-shift', function (e) {
+      if (e.hadRecentInput) return
+      if (cv && e.startTime - cl < 1000 && e.startTime - cf < 5000) cv += e.value
+      else { cv = e.value; cf = e.startTime }
+      cl = e.startTime
+      if (cv > vit.c) vit.c = Math.round(cv * 1000) / 1000
+    })
+    // how long a press takes to show something: the slowest (with many presses, nearly the slowest)
+    var slow = [], presses = 0
+    var press = function (e) {
+      if (!e.interactionId) return
+      var k, x = null
+      for (k = 0; k < slow.length; k++) if (slow[k].id === e.interactionId) x = slow[k]
+      if (x) x.d = Math.max(x.d, e.duration)
+      else { presses++; slow.push({ id: e.interactionId, d: e.duration }) }
+      slow.sort(function (a, b) { return b.d - a.d })
+      if (slow.length > 10) slow.length = 10
+      vit.i = Math.round(slow[Math.min(slow.length - 1, Math.floor(presses / 50))].d)
+    }
+    watch('event', press, 40)
+    watch('first-input', press)
   }
 
   // ---- time on page and how far down ----
@@ -61,11 +109,11 @@
     if (!page) return
     var t = engaged()
     if (t < 1000 && maxScroll <= sentScroll) return
-    send('engagement', { u: page, e: t, sd: maxScroll })
+    send('engagement', { u: page, e: t, sd: maxScroll, v: page === loaded && speed && PO ? vit : null })
     shown = 0; since = d.visibilityState === 'visible' ? now() : 0; sentScroll = maxScroll
   }
   d.addEventListener('visibilitychange', function () {
-    if (d.visibilityState === 'hidden') report()
+    if (d.visibilityState === 'hidden') { report(); hid = true }
     else if (!since) since = now()
   })
   w.addEventListener('pagehide', report)
@@ -77,13 +125,30 @@
     var where = l.pathname + (hash ? l.hash : '')
     if (where === last) return
     if (page) report()
+    if (!first) loaded = ''
     last = where
     page = l.href
     shown = 0; since = d.visibilityState === 'visible' ? now() : 0
     maxScroll = 0; sentScroll = 0
     setTimeout(onScroll, 300)
     send('pageview', { r: first ? d.referrer || null : null })
+    if (first && missing && notFound()) send('404', { props: { from: cameFrom() } })
     first = false
+  }
+  // a page that does not exist: the server said 404 (or the page says so with data-pocket-404)
+  function notFound() {
+    try {
+      var nav = performance.getEntriesByType('navigation')[0]
+      if (nav && (nav.responseStatus === 404 || nav.responseStatus === 410)) return true
+    } catch (e) {}
+    return !!d.querySelector('[data-pocket-404]')
+  }
+  // the page with the link that led here: a path of this site, or another site's page
+  function cameFrom() {
+    try {
+      var u = new URL(d.referrer)
+      return (u.host === l.host ? '' : u.host) + u.pathname
+    } catch (e) { return '' }
   }
   var hs = w.history
   if (hs && hs.pushState) {
@@ -120,7 +185,12 @@
     var href = el.tagName === 'A' ? el.href : ''
     // sendBeacon and keepalive outlive the page, so nothing waits here
     if (t) send(t.name, { props: t.props })
-    if (href) {
+    if (outbound && /^(mailto|tel):/i.test(href)) {
+      var to = href.replace(/^\w+:/, '').split('?')[0]
+      try { to = decodeURIComponent(to) } catch (x) {}
+      to = to.trim()
+      if (to) send('Contact Link: Click', { props: { kind: /^m/i.test(href) ? 'email' : 'phone', to: to } })
+    } else if (href) {
       var u
       try { u = new URL(href, l.href) } catch (x) { u = null }
       if (u && /^https?:$/.test(u.protocol)) {
@@ -134,8 +204,21 @@
   d.addEventListener('click', onClick, true)
   d.addEventListener('auxclick', onClick, true)
 
-  // ---- the site's own events: pocket('Signed up', { props: { plan: 'pro' } }) ----
-  function api_(name, o) { o = o || {}; send(name, { props: o.props, u: o.u }, o.callback) }
+  // ---- forms people send: which form, never what was typed ----
+  if (forms) d.addEventListener('submit', function (e) {
+    var f = e.target
+    if (!f || f.tagName !== 'FORM' || f.hasAttribute('data-pocket-ignore')) return
+    // a search box is not a form sent: its words show under searches
+    if (f.getAttribute('role') === 'search' || f.querySelector('input[type="search"]')) return
+    var where = ''
+    try { where = new URL(f.getAttribute('action') || l.href, l.href).pathname } catch (x) {}
+    var name = f.getAttribute('data-pocket-form') || f.getAttribute('aria-label') || f.id || f.getAttribute('name') || where || '(form)'
+    send('Form: Submission', { props: { form: name.length > 80 ? name.slice(0, 79) + '…' : name } })
+  }, true)
+
+  // ---- the site's own events: pocket('Signed up', { props: { plan: 'pro' } }),
+  // with money: pocket('Order placed', { revenue: { amount: 24.5, currency: 'EUR' } }) ----
+  function api_(name, o) { o = o || {}; send(name, { props: o.props, u: o.u, rev: o.revenue }, o.callback) }
   var queued = (w.pocket && w.pocket.q) || []
   w.pocket = api_
   if (!w.plausible) w.plausible = api_

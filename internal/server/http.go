@@ -87,6 +87,15 @@ func (s *Server) Router() http.Handler {
 				r.Get("/sites/{id}/visits", s.handleVisits)
 				r.Get("/sites/{id}/visits/{vid}", s.handleVisit)
 				r.Get("/sites/{id}/events", s.handleEventNames)
+				r.Get("/sites/{id}/speed", s.handleSpeed)
+				r.Get("/sites/{id}/when", s.handleWhen)
+				r.Get("/sites/{id}/paths", s.handlePaths)
+
+				// what happened on a day, on the chart
+				r.Get("/sites/{id}/notes", s.handleListNotes)
+				r.Post("/sites/{id}/notes", s.handleCreateNote)
+				r.Put("/notes/{nid}", s.handleUpdateNote)
+				r.Delete("/notes/{nid}", s.handleDeleteNote)
 
 				// goals and funnels
 				r.Post("/sites/{id}/goals", s.handleCreateGoal)

@@ -21,6 +21,9 @@ func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
 	if s.Options.Exclude == nil {
 		s.Options.Exclude = []string{}
 	}
+	if s.Options.SearchParams == nil {
+		s.Options.SearchParams = append([]string{}, DefaultSearchParams...)
+	}
 	if s.Also == nil {
 		s.Also = []string{}
 	}
@@ -68,6 +71,9 @@ func (s *Store) SiteByDomain(ctx context.Context, domain string) (*Site, error) 
 func (s *Store) CreateSite(ctx context.Context, st *Site) error {
 	if st.Options.Exclude == nil {
 		st.Options.Exclude = []string{}
+	}
+	if st.Options.SearchParams == nil {
+		st.Options.SearchParams = append([]string{}, DefaultSearchParams...)
 	}
 	var pos int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) + 1 FROM sites WHERE user_id = ?`, st.UserID).Scan(&pos)
@@ -284,6 +290,78 @@ func (s *Store) DeleteFunnel(ctx context.Context, uid, id int64) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ---- notes on the chart ----
+
+// ListNotes is a site's notes, oldest day first; from and to (YYYY-MM-DD,
+// inclusive) narrow them when set.
+func (s *Store) ListNotes(ctx context.Context, uid, siteID int64, from, to string) ([]Note, error) {
+	q, args := `SELECT id, site_id, day, text, created_at FROM notes WHERE user_id = ? AND site_id = ?`, []any{uid, siteID}
+	if from != "" {
+		q, args = q+` AND day >= ?`, append(args, from)
+	}
+	if to != "" {
+		q, args = q+` AND day <= ?`, append(args, to)
+	}
+	rows, err := s.DB.QueryContext(ctx, q+` ORDER BY day, id LIMIT 1000`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Note{}
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.SiteID, &n.Day, &n.Text, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetNote(ctx context.Context, uid, id int64) (*Note, error) {
+	var n Note
+	err := s.DB.QueryRowContext(ctx, `SELECT id, site_id, day, text, created_at FROM notes WHERE id = ? AND user_id = ?`, id, uid).Scan(&n.ID, &n.SiteID, &n.Day, &n.Text, &n.CreatedAt)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return &n, nil
+}
+
+func (s *Store) CreateNote(ctx context.Context, uid int64, n *Note) error {
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO notes (user_id, site_id, day, text) VALUES (?, ?, ?, ?)`, uid, n.SiteID, n.Day, n.Text)
+	if err != nil {
+		return err
+	}
+	n.ID, _ = res.LastInsertId()
+	got, err := s.GetNote(ctx, uid, n.ID)
+	if err == nil {
+		*n = *got
+	}
+	return err
+}
+
+func (s *Store) UpdateNote(ctx context.Context, uid int64, n *Note) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE notes SET day = ?, text = ? WHERE id = ? AND user_id = ?`, n.Day, n.Text, n.ID, uid)
+	if err != nil {
+		return err
+	}
+	if c, _ := res.RowsAffected(); c == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteNote(ctx context.Context, uid, id int64) error {
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM notes WHERE id = ? AND user_id = ?`, id, uid)
+	if err != nil {
+		return err
+	}
+	if c, _ := res.RowsAffected(); c == 0 {
 		return ErrNotFound
 	}
 	return nil

@@ -26,21 +26,31 @@ type APIToken struct {
 
 // SiteOptions are what a site counts and how.
 type SiteOptions struct {
-	Outbound  bool     `json:"outbound"`  // clicks on links to other sites
-	Downloads bool     `json:"downloads"` // clicks on files (pdf, zip, …)
-	Clicks    bool     `json:"clicks"`    // clicks on any link or button (what people press)
-	Hash      bool     `json:"hash"`      // pages are told apart by #… (single-page apps)
-	Localhost bool     `json:"localhost"` // count hits from localhost (testing)
-	Exclude   []string `json:"exclude"`   // paths not counted (* = any part)
-	KeepDays  int      `json:"keep_days"` // visits older than this are removed (0 = keep)
-	Spike     bool     `json:"spike"`     // tell me when far more people than usual come
-	Quiet     bool     `json:"quiet"`     // tell me when nobody came for a day (tracking broken?)
-	Weekly    bool     `json:"weekly"`    // in the weekly report
+	Outbound     bool     `json:"outbound"`      // clicks on links to other sites, and on email and phone links
+	Downloads    bool     `json:"downloads"`     // clicks on files (pdf, zip, …)
+	Clicks       bool     `json:"clicks"`        // clicks on any link or button (what people press)
+	Forms        bool     `json:"forms"`         // forms people send (never what they typed)
+	NotFound     bool     `json:"not_found"`     // pages that do not exist, and where the link to them was
+	Search       bool     `json:"search"`        // what people search for on the site (?q=…)
+	SearchParams []string `json:"search_params"` // the names in the address that hold the search words
+	Speed        bool     `json:"speed"`         // how fast pages show and react
+	Hash         bool     `json:"hash"`          // pages are told apart by #… (single-page apps)
+	Localhost    bool     `json:"localhost"`     // count hits from localhost (testing)
+	Exclude      []string `json:"exclude"`       // paths not counted (* = any part)
+	KeepDays     int      `json:"keep_days"`     // visits older than this are removed (0 = keep)
+	Spike        bool     `json:"spike"`         // tell me when far more people than usual come
+	Quiet        bool     `json:"quiet"`         // tell me when nobody came for a day (tracking broken?)
+	Weekly       bool     `json:"weekly"`        // in the weekly report
 }
 
-// DefaultOptions are what a new site starts with.
+// DefaultSearchParams are the usual names of a site search in the address.
+var DefaultSearchParams = []string{"q", "s", "search", "query"}
+
+// DefaultOptions are what a new site starts with (and what a site saved
+// before an option existed gets for it).
 func DefaultOptions() SiteOptions {
-	return SiteOptions{Outbound: true, Downloads: true, Spike: true, Quiet: true, Weekly: true, Exclude: []string{}}
+	return SiteOptions{Outbound: true, Downloads: true, Forms: true, NotFound: true, Search: true, Speed: true,
+		SearchParams: append([]string{}, DefaultSearchParams...), Spike: true, Quiet: true, Weekly: true, Exclude: []string{}}
 }
 
 // Site is one website being counted.
@@ -136,6 +146,36 @@ type Hit struct {
 	Props   map[string]string `json:"props,omitempty"`
 	Engaged int64             `json:"engaged"`
 	Scroll  int               `json:"scroll"`
+	// money the event brought, when it said so
+	Revenue  float64 `json:"revenue,omitempty"`
+	Currency string  `json:"currency,omitempty"`
+	// how fast the page was (nil = not measured)
+	LCP *int64   `json:"lcp,omitempty"`
+	INP *int64   `json:"inp,omitempty"`
+	CLS *float64 `json:"cls,omitempty"`
+}
+
+// Vitals are how fast a page was for one visitor: milliseconds until the
+// server answered (TTFB), something showed (FCP) and the main content
+// showed (LCP), how long the slowest press took to show a result (INP),
+// and how much the layout moved (CLS). nil = not measured.
+type Vitals struct {
+	TTFB, FCP, LCP, INP *int64
+	CLS                 *float64
+}
+
+// Empty reports whether nothing was measured.
+func (v Vitals) Empty() bool {
+	return v.TTFB == nil && v.FCP == nil && v.LCP == nil && v.INP == nil && v.CLS == nil
+}
+
+// Note is what happened on a day, shown on a site's chart.
+type Note struct {
+	ID        int64  `json:"id"`
+	SiteID    int64  `json:"site_id"`
+	Day       string `json:"day"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at"`
 }
 
 // Conn is one person's connection to a sibling Pocket app.

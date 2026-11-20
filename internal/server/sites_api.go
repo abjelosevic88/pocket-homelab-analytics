@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -91,6 +92,15 @@ func snippet(site *store.Site, script, api string) string {
 	if !site.Options.Downloads {
 		attrs = append(attrs, "data-no-downloads")
 	}
+	if !site.Options.Forms {
+		attrs = append(attrs, "data-no-forms")
+	}
+	if !site.Options.NotFound {
+		attrs = append(attrs, "data-no-404")
+	}
+	if !site.Options.Speed {
+		attrs = append(attrs, "data-no-speed")
+	}
 	return fmt.Sprintf(`<script %s src="%s"></script>`, strings.Join(attrs, " "), html.EscapeString(script))
 }
 
@@ -131,11 +141,11 @@ func (s *Server) handleListSites(w http.ResponseWriter, r *http.Request) {
 }
 
 type siteIn struct {
-	Domain  *string            `json:"domain"`
-	Name    *string            `json:"name"`
-	TZ      *string            `json:"tz"`
-	Also    *[]string          `json:"also"`
-	Options *store.SiteOptions `json:"options"`
+	Domain  *string         `json:"domain"`
+	Name    *string         `json:"name"`
+	TZ      *string         `json:"tz"`
+	Also    *[]string       `json:"also"`
+	Options json.RawMessage `json:"options"` // only what is sent changes
 }
 
 // apply checks and copies what was sent onto a site.
@@ -174,8 +184,28 @@ func (in siteIn) apply(site *store.Site) string {
 			}
 		}
 	}
-	if in.Options != nil {
-		o := *in.Options
+	if len(in.Options) > 0 && string(in.Options) != "null" {
+		o := site.Options
+		o.Exclude, o.SearchParams = nil, nil
+		if err := json.Unmarshal(in.Options, &o); err != nil {
+			return "the options could not be read"
+		}
+		if o.Exclude == nil {
+			o.Exclude = site.Options.Exclude
+		}
+		if o.SearchParams == nil {
+			o.SearchParams = site.Options.SearchParams
+		}
+		sp := []string{}
+		for _, p := range o.SearchParams {
+			if p = strings.TrimSpace(p); p != "" && len(sp) < 10 && !strings.ContainsAny(p, "&=?#/ ") {
+				sp = append(sp, clip(p, 40))
+			}
+		}
+		if len(sp) == 0 {
+			sp = append(sp, store.DefaultSearchParams...)
+		}
+		o.SearchParams = sp
 		ex := []string{}
 		for _, p := range o.Exclude {
 			if p = strings.TrimSpace(p); p != "" && len(ex) < 50 {

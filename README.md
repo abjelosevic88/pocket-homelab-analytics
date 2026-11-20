@@ -1,6 +1,6 @@
 <p align="center"><img src="web/public/favicon.svg" width="72" alt=""></p>
 <h1 align="center">Pocket Analytics</h1>
-<p align="center">Who visits your websites, without cookies and without a banner. You see visitors and pages, where people came from (search, social, AI assistants, newsletters, campaigns), their country and city, and their device and browser. You also see how long people stay, how far down they read, which links and files they click, your goals and funnels, single visits, and who is on the site right now. Add one small script to each site. The IP address is never stored, and the same person can't be followed from one day to the next. A replacement for Google Analytics, Plausible or Umami.<br>One Go binary, one SQLite file, one volume. Part of the Pocket apps; works on its own too.</p>
+<p align="center">Who visits your websites, without cookies and without a banner. You see visitors and pages, where people came from (search, social, AI assistants, newsletters, campaigns), their country and city, and their device and browser. You also see how long people stay, how far down they read, which links and files they click, how fast your pages are, the broken links people land on, what they search for, your goals (with the money they bring) and funnels, single visits, and who is on the site right now. Add one small script to each site. The IP address is never stored, and the same person can't be followed from one day to the next. A replacement for Google Analytics, Plausible or Umami.<br>One Go binary, one SQLite file, one volume. Part of the Pocket apps; works on its own too.</p>
 <p align="center">
   <a href="https://github.com/abjelosevic88/pocket-homelab-analytics/actions"><img src="https://github.com/abjelosevic88/pocket-homelab-analytics/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/abjelosevic88/pocket-homelab-analytics/pkgs/container/pocket-homelab-analytics"><img src="https://img.shields.io/badge/ghcr.io-amd64%20%7C%20arm64%20%7C%20armv7-blue" alt="image"></a>
@@ -27,6 +27,14 @@
     <td align="center"><sub>One visit: where it came from and each page in order. Never who it was.</sub></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/screenshots/desktop-speed.png" alt="When people come and how fast the pages are"></td>
+    <td width="50%"><img src="docs/screenshots/desktop-paths.png" alt="Where people were before the menu page and where they went next"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The busy hours of the week, and how fast each page shows and answers.</sub></td>
+    <td align="center"><sub>The way through a page: where people were before, where they went next.</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/desktop-install.png" alt="Installing on a site"></td>
     <td width="50%"><img src="docs/screenshots/desktop-dark.png" alt="Twelve months in the dark theme"></td>
   </tr>
@@ -48,11 +56,16 @@
 
 - **The numbers**: visitors, visits, pages seen, pages per visit, people who left after one page, visit length. Each is compared with the period before, and the chart shows that period as a dashed line. Ranges go from today to all time, shown by hour, day, week or month.
 - **Where they came from**: channels (search, social, AI assistants, email, paid, other sites, direct), sources, the exact pages that linked to you, and `utm_` campaigns.
-- **What they read**: top pages with time on the page and how far down people scrolled, plus the pages people came in on and left from.
+- **What they read**: top pages with time on the page and how far down people scrolled, plus the pages people came in on and left from. Filter by a page and you see **the way through it**: where people were before and where they went next.
+- **Pages that do not exist**: the addresses people land on that your site does not have, and the page with the broken link.
+- **How fast the pages are**: how long a page takes to show, to answer a press, how much the layout jumps and how fast the server answers (Core Web Vitals, measured in the visitor's browser), by page, device, browser and country, in green, amber and red.
 - **Where they are**: countries, regions, cities and languages. Places come from an offline DB-IP database on your box, or from Cloudflare when the site runs there.
 - **What they used**: phone, tablet, laptop or desktop; browser and system.
-- **What they did**: links to other sites, file downloads, every button (optional), and your own events with properties (`pocket('Order placed', { props: { type: 'pickup' } })` or `data-pocket-event`).
-- **Goals and funnels**: a page reached or an event sent counts as a goal. A funnel shows where people drop off between steps.
+- **What they did**: links to other sites, file downloads, email and phone links pressed, forms sent (never what was typed), searches on your site, every button (optional), and your own events with properties (`pocket('Order placed', { props: { type: 'pickup' } })` or `data-pocket-event`). Click an event to see its details.
+- **Goals and funnels**: a page reached or an event sent counts as a goal, and shows the money it brought when the event says so (`revenue: { amount: 24.5, currency: 'EUR' }`). A funnel shows where people drop off between steps.
+- **When they come**: a week of hours, darker where more people visit.
+- **Notes on the chart**: mark the day a newsletter went out or a design changed, so a rise or a drop explains itself later.
+- **Campaign links**: a small builder for links that say where a visit came from (a newsletter, a QR code, an ad).
 - **Filters everywhere**: click any row and the whole page shows only those visits. The address keeps the view, so it can be shared.
 - **Visits one by one** and **right now**: the pages of each visit in order, and the people on the site this minute.
 - **Pocket AI explains** a period in plain words, and you can keep that as a note or a task.

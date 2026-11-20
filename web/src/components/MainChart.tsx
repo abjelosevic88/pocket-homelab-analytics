@@ -27,8 +27,12 @@ function niceTicks(max: number): number[] {
   return out
 }
 
-export function MainChart({ starts, values, previous, interval, format, height = 240, now, label }: {
+export function MainChart({ starts, values, previous, interval, format, height = 240, now, label, notes, tz }: {
   starts: number[]; values: number[]; previous?: number[]; interval: string; format: (v: number) => string; height?: number; now: number; label: string
+  /** What happened on a day; ts = when that day starts. */
+  notes?: { id: number; ts?: number; text: string }[]
+  /** The site's time zone: days and hours are labelled as they are there. */
+  tz?: string
 }) {
   const [ref, W] = useWidth(700)
   const [hover, setHover] = useState<number | null>(null)
@@ -51,6 +55,19 @@ export function MainChart({ starts, values, previous, interval, format, height =
     const i = Math.round(((cx - rect.left - L) / (W - L - R)) * (n - 1))
     setHover(Math.max(0, Math.min(lastReal, i)))
   }
+  // each note sits on the bucket its day falls in
+  const marks = useMemo(() => {
+    const by = new Map<number, string[]>()
+    for (const nt of notes || []) {
+      if (nt.ts === undefined || !n) continue
+      let i = -1
+      for (let k = 0; k < n; k++) if (starts[k] <= nt.ts) i = k
+      // a day note on an hourly chart belongs to that day's first hour; on weeks and months, to the bucket holding it
+      if (i < 0) i = 0
+      by.set(i, [...(by.get(i) || []), nt.text])
+    }
+    return by
+  }, [notes, starts, n])
   const hv = hover !== null ? values[hover] : null
   const hp = hover !== null && previous ? previous[hover] : undefined
   const tipLeft = hover !== null ? Math.min(Math.max(x(hover), 90), W - 90) : 0
@@ -68,7 +85,11 @@ export function MainChart({ starts, values, previous, interval, format, height =
         {line && n > 1 && <path d={`${line} L${x(lastReal).toFixed(1)},${y(0)} L${x(0)},${y(0)} Z`} fill="url(#mc-fill)" />}
         {line && <path className="mc-line" d={line} />}
         {n <= 45 && values.slice(0, lastReal + 1).map((v, i) => <circle key={i} className="mc-dot" cx={x(i)} cy={y(v)} r={2.5} />)}
-        {starts.map((s, i) => (i % every === 0 && i + every / 2 < n) || i === n - 1 ? <text key={i} className="mc-tick" x={x(i)} y={H - 7} textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}>{bucketLabel(s, interval)}</text> : null)}
+        {starts.map((s, i) => (i % every === 0 && i + every / 2 < n) || i === n - 1 ? <text key={i} className="mc-tick" x={x(i)} y={H - 7} textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}>{bucketLabel(s, interval, false, tz)}</text> : null)}
+        {[...marks.keys()].map(i => <g key={`m${i}`} className="mc-mark">
+          <line x1={x(i)} x2={x(i)} y1={T + 7} y2={H - B} />
+          <circle cx={x(i)} cy={T + 3} r={4} />
+        </g>)}
         {hover !== null && hv !== null && <g>
           <line className="mc-cursor" x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} />
           {hp !== undefined && <circle cx={x(hover)} cy={y(hp)} r={3.5} className="mc-dot-prev" />}
@@ -76,9 +97,10 @@ export function MainChart({ starts, values, previous, interval, format, height =
         </g>}
       </svg>
       {hover !== null && hv !== null && <div className="mc-tip" style={{ left: tipLeft }}>
-        <span className="mc-tip-when">{bucketLabel(starts[hover], interval, true)}</span>
+        <span className="mc-tip-when">{bucketLabel(starts[hover], interval, true, tz)}</span>
         <b>{format(hv)} {label.toLowerCase()}</b>
         {hp !== undefined && <span className="mc-tip-prev">Before: {format(hp)}</span>}
+        {(marks.get(hover) || []).map((t, k) => <span key={k} className="mc-tip-note">{t}</span>)}
       </div>}
     </div>
   )

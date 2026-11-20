@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useData } from '../lib/data'
 import type { Hit, Visit } from '../lib/types'
-import { RANGES, countryName, eventLabel, deviceIcon, flag, fmtDur, languageName, useView } from '../lib/analytics'
+import { RANGES, countryName, eventLabel, deviceIcon, flag, fmtDur, fmtMoney, fmtSpeed, languageName, rate, useView } from '../lib/analytics'
 import { fmtDateTime } from '../lib/format'
 import { Empty, Loading, type MenuItem, MenuButton, Modal } from '../components/ui'
 import { Icon } from '../components/icons'
@@ -82,8 +82,9 @@ function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: num
               <span className="j-at muted small tnum">+{fmtDur(h.ts - v.started)}</span>
               <span className="j-ico"><Icon name={h.name === 'pageview' ? 'file' : 'zap'} size={13} /></span>
               <span className="j-what">
-                {h.name === 'pageview' ? <b>{h.path}</b> : <><b>{eventLabel(h.name)}</b>{h.props && <span className="muted small"> {Object.entries(h.props).map(([k, val]) => `${k}: ${val}`).join(' · ')}</span>}</>}
+                {h.name === 'pageview' ? <b>{h.path}</b> : <><b>{eventLabel(h.name)}</b>{h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}{h.props && <span className="muted small"> {Object.entries(h.props).map(([k, val]) => `${k}: ${val || '—'}`).join(' · ')}</span>}</>}
                 {h.name === 'pageview' && (h.engaged > 0 || h.scroll > 0) && <span className="muted small"> · {fmtDur(h.engaged / 1000)} on the page{h.scroll ? `, read ${h.scroll}% down` : ''}</span>}
+                {h.name === 'pageview' && h.lcp ? <span className={`small sp-inline sp-${rate('lcp', h.lcp)}`} title="How long until the main part of the page was on the screen"> · <i className="sp-dot" aria-hidden="true" />showed in {fmtSpeed('lcp', h.lcp)}</span> : null}
                 {i === 0 && <span className="badge">came in</span>}
               </span>
             </li>

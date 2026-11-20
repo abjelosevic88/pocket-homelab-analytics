@@ -78,11 +78,35 @@ func (s *Server) digest(ctx context.Context, site *store.Site, q store.Query, sp
 	list("Browsers", "browser", 5)
 	list("Events", "event", 8)
 	list("Links to other sites", "outbound", 5)
+	list("Searches on the site", "search", 6)
+	list("Forms sent", "form", 5)
+	list("Email and phone links pressed", "contact", 4)
+	list("Pages that do not exist (someone followed a broken link)", "notfound", 5)
+	if all, _, err := s.store.Speed(ctx, q, "page", 1); err == nil && all.Loads >= 10 {
+		b.WriteString("\nSpeed (what three of four page loads stayed under):")
+		if all.LCP != nil {
+			fmt.Fprintf(&b, " the main content showed in %.1f s (good: up to 2.5 s);", all.LCP.P75/1000)
+		}
+		if all.INP != nil {
+			fmt.Fprintf(&b, " a press showed a result in %.0f ms (good: up to 200 ms);", all.INP.P75)
+		}
+		if all.CLS != nil {
+			fmt.Fprintf(&b, " the layout moved %.2f (good: up to 0.1);", all.CLS.P75)
+		}
+		if all.TTFB != nil {
+			fmt.Fprintf(&b, " the server answered in %.0f ms (good: up to 800 ms);", all.TTFB.P75)
+		}
+		fmt.Fprintf(&b, " %d page loads measured\n", all.Loads)
+	}
 	goals, _ := s.store.ListGoals(ctx, site.UserID, site.ID)
 	if conv, _ := s.store.Conversions(ctx, q, goals, t.Visitors); len(conv) > 0 {
 		b.WriteString("\nGoals:\n")
 		for _, c := range conv {
-			fmt.Fprintf(&b, "- %s: %d visitors (%.1f%%), %d times\n", c.Goal.Name, c.Visitors, c.Rate, c.Conversions)
+			money := ""
+			for _, m := range c.Revenue {
+				money += fmt.Sprintf(", brought %.2f %s", m.Amount, m.Currency)
+			}
+			fmt.Fprintf(&b, "- %s: %d visitors (%.1f%%), %d times%s\n", c.Goal.Name, c.Visitors, c.Rate, c.Conversions, money)
 		}
 	}
 	return b.String()

@@ -11,7 +11,7 @@ import (
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/store"
 )
 
-// ---- export and import: sites, goals and funnels (not the visits) ----
+// ---- export and import: sites, goals, funnels and notes (not the visits) ----
 
 type exportSite struct {
 	Domain  string            `json:"domain"`
@@ -21,6 +21,14 @@ type exportSite struct {
 	Options store.SiteOptions `json:"options"`
 	Goals   []store.Goal      `json:"goals"`
 	Funnels []*store.Funnel   `json:"funnels"`
+	Notes   []store.Note      `json:"notes"`
+}
+
+// importSite reads a site from an export; options an older export did not
+// know keep their defaults.
+type importSite struct {
+	exportSite
+	Options json.RawMessage `json:"options"`
 }
 
 type exportDoc struct {
@@ -42,7 +50,8 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	for _, st := range sites {
 		g, _ := s.store.ListGoals(ctx, uid, st.ID)
 		f, _ := s.store.ListFunnels(ctx, uid, st.ID)
-		doc.Sites = append(doc.Sites, exportSite{Domain: st.Domain, Name: st.Name, TZ: st.TZ, Also: st.Also, Options: st.Options, Goals: g, Funnels: f})
+		n, _ := s.store.ListNotes(ctx, uid, st.ID, "", "")
+		doc.Sites = append(doc.Sites, exportSite{Domain: st.Domain, Name: st.Name, TZ: st.TZ, Also: st.Also, Options: st.Options, Goals: g, Funnels: f, Notes: n})
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="pocket-analytics-%s.json"`, time.Now().Format("2006-01-02")))
 	writeJSON(w, http.StatusOK, doc)
@@ -59,12 +68,15 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "too large")
 		return
 	}
-	var doc exportDoc
+	var doc struct {
+		App   string       `json:"app"`
+		Sites []importSite `json:"sites"`
+	}
 	if err := json.Unmarshal(b, &doc); err != nil || doc.App != "pocket-analytics" {
 		writeErr(w, http.StatusBadRequest, "that is not a Pocket Analytics export")
 		return
 	}
-	res := map[string]int{"sites": 0, "goals": 0, "funnels": 0, "skipped": 0}
+	res := map[string]int{"sites": 0, "goals": 0, "funnels": 0, "notes": 0, "skipped": 0}
 	for _, es := range doc.Sites {
 		domain, ok := cleanDomain(es.Domain)
 		if !ok {
@@ -74,7 +86,11 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		site, err := s.store.SiteByDomain(ctx, domain)
 		switch {
 		case err == store.ErrNotFound:
-			site = &store.Site{UserID: uid, Domain: domain, Name: clip(es.Name, 80), TZ: es.TZ, Also: es.Also, Options: es.Options, ProxyKey: store.RandomToken(24)}
+			opts := store.DefaultOptions()
+			if len(es.Options) > 0 {
+				_ = json.Unmarshal(es.Options, &opts)
+			}
+			site = &store.Site{UserID: uid, Domain: domain, Name: clip(es.Name, 80), TZ: es.TZ, Also: es.Also, Options: opts, ProxyKey: store.RandomToken(24)}
 			if site.Also == nil {
 				site.Also = []string{}
 			}
@@ -123,6 +139,22 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			if s.store.CreateFunnel(ctx, uid, &nf) == nil {
 				res["funnels"]++
 				haveF[strings.ToLower(nf.Name)] = true
+			}
+		}
+		notes, _ := s.store.ListNotes(ctx, uid, site.ID, "", "")
+		haveN := map[string]bool{}
+		for _, n := range notes {
+			haveN[n.Day+"\n"+n.Text] = true
+		}
+		for _, n := range es.Notes {
+			nn, msg := noteIn{Day: n.Day, Text: n.Text}.check()
+			if msg != "" || haveN[nn.Day+"\n"+nn.Text] {
+				continue
+			}
+			nn.SiteID = site.ID
+			if s.store.CreateNote(ctx, uid, &nn) == nil {
+				res["notes"]++
+				haveN[nn.Day+"\n"+nn.Text] = true
 			}
 		}
 	}
