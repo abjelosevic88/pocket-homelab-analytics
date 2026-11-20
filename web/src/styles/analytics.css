@@ -653,3 +653,10 @@ b.ellipsis, span.ellipsis { display: block; }
 .mono-area { font-family: var(--mono); font-size: 12px; }
 .callout.info > .icon { color: var(--accent-ink); }
 .g-steps b, .g-sites b { font-weight: 650; }
+
+/* robots; Google pages */
+.rb { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.rrow.picked { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.rrow.picked .rbar { background: var(--accent-ring); }
+.kw-by { margin: 0 0 10px; }
+@media (max-width: 899px) { .rb { grid-template-columns: minmax(0, 1fr); } }

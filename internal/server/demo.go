@@ -427,6 +427,9 @@ func (s *Server) seedDemo(ctx context.Context, uid int64) error {
 			return err
 		}
 	}
+	if err := s.seedDemoRobots(ctx, uid, rng); err != nil {
+		return err
+	}
 	s.reloadSites(ctx)
 	s.log.Info("demo data ready")
 	return nil
@@ -459,4 +462,68 @@ func demoVitals(rng *rand.Rand, device string, heavy float64) store.Vitals {
 		v.INP = ms((36 + rng.ExpFloat64()*44) * f)
 	}
 	return v
+}
+
+// seedDemoRobots gives the demo sites thirty days of robots: search
+// engines every day, AI assistants reading the recipes and posts, and the
+// link previews of a newsletter and a Hacker News day.
+func (s *Server) seedDemoRobots(ctx context.Context, uid int64, rng *rand.Rand) error {
+	type robot struct {
+		name, kind string
+		perDay     float64
+	}
+	crowd := []robot{{"Google", "search", 46}, {"Bing", "search", 17}, {"DuckDuckGo", "search", 4}, {"Apple", "search", 3}, {"Yandex", "search", 2},
+		{"OpenAI (learning)", "ai", 15}, {"ChatGPT (answering someone)", "ai", 9}, {"ChatGPT search", "ai", 6}, {"Anthropic (learning)", "ai", 11}, {"Claude (answering someone)", "ai", 3},
+		{"Perplexity search", "ai", 5}, {"Perplexity (answering someone)", "ai", 2}, {"Meta AI", "ai", 4}, {"Common Crawl", "ai", 1.5},
+		{"WhatsApp", "preview", 3}, {"Facebook", "preview", 2.5}, {"iMessage", "preview", 1.5}, {"Slack", "preview", 0.6}, {"Telegram", "preview", 0.5}, {"X (Twitter)", "preview", 0.4},
+		{"Ahrefs", "seo", 8}, {"Semrush", "seo", 5}, {"UptimeRobot", "monitor", 24}, {"Scripts and tools", "other", 2}, {"Feed readers", "other", 3}}
+	sites, err := s.store.ListSites(ctx, uid)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for si, site := range sites {
+		var ds demoSite
+		for _, d := range demoSites() {
+			if d.domain == site.Domain {
+				ds = d
+			}
+		}
+		if ds.domain == "" {
+			continue
+		}
+		var hits []store.RobotHit
+		for d := 29; d >= 0; d-- {
+			day := dayStart(now).AddDate(0, 0, -d)
+			for _, r := range crowd {
+				n := r.perDay * (0.6 + 0.8*rng.Float64())
+				if si == 1 {
+					n *= 0.6
+					if r.kind == "preview" && d == 20 {
+						n *= 25 // the day the post was shared everywhere
+					}
+				}
+				for i := 0; i < int(n+rng.Float64()); i++ {
+					ts := day.Add(time.Duration(rng.Intn(24)) * time.Hour).Unix()
+					if ts > now.Unix() {
+						continue
+					}
+					path := choose(rng, ds.pages)
+					switch {
+					case r.kind == "monitor":
+						path = "/"
+					case r.kind == "ai" && rng.Intn(100) < 55 && len(ds.pages) > 5:
+						path = ds.pages[5+rng.Intn(len(ds.pages)-5)].v // the articles more than the front page
+					case r.kind == "search" && rng.Intn(100) < 6 && len(ds.missing) > 0:
+						path = choose(rng, ds.missing).path
+					}
+					hits = append(hits, store.RobotHit{SiteID: site.ID, TS: ts / 3600 * 3600, Name: r.name, Kind: r.kind, Path: path, Hits: 1})
+				}
+			}
+		}
+		if err := s.store.AddRobotHits(ctx, hits); err != nil {
+			return err
+		}
+	}
+	return nil
 }

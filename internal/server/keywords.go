@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 // keywordsOut is what a site's "Search words" list shows.
 type keywordsOut struct {
 	State    string    `json:"state"` // ok | off | no_property | error
+	By       string    `json:"by"`    // query (the words) | page (the pages Google sent people to)
 	Error    string    `json:"error,omitempty"`
 	Email    string    `json:"email,omitempty"`    // the key's address, to add in Search Console
 	Property string    `json:"property,omitempty"` // the Search Console property read
@@ -89,13 +91,17 @@ func pageRE(path string) string {
 
 var gscDevice = map[string]string{"Phone": "MOBILE", "Tablet": "TABLET", "Laptop": "DESKTOP", "Desktop": "DESKTOP"}
 
-// keywords reads a site's search words for a range and its filters.
-func (s *Server) keywords(ctx context.Context, site *store.Site, q store.Query, sp span, limit int) keywordsOut {
-	out := keywordsOut{State: "off", Rows: []gsc.Row{}}
+// keywords reads a site's search words (by = "query") or the pages Google
+// sent people to (by = "page") for a range and its filters.
+func (s *Server) keywords(ctx context.Context, site *store.Site, q store.Query, sp span, by string, limit int) keywordsOut {
+	if by != "page" {
+		by = "query"
+	}
+	out := keywordsOut{State: "off", By: by, Rows: []gsc.Row{}}
 	st, _ := s.store.GetSettings(ctx, site.UserID)
 	if st.GoogleKey == "" {
 		if s.cfg.DemoData {
-			return demoKeywords(site, sp, limit)
+			return demoKeywords(site, sp, by, limit)
 		}
 		return out
 	}
@@ -132,7 +138,7 @@ func (s *Server) keywords(ctx context.Context, site *store.Site, q store.Query, 
 	if from.After(to) {
 		from = to
 	}
-	gq := gsc.Query{From: from.Format("2006-01-02"), To: to.Format("2006-01-02"), By: "query", Limit: limit}
+	gq := gsc.Query{From: from.Format("2006-01-02"), To: to.Format("2006-01-02"), By: by, Limit: limit}
 	for _, f := range q.Filters {
 		switch {
 		case f.Dim == "page" && !f.Not:
@@ -146,7 +152,7 @@ func (s *Server) keywords(ctx context.Context, site *store.Site, q store.Query, 
 		}
 	}
 	out.State, out.Property, out.From, out.To = "ok", prop, gq.From, gq.To
-	ck := fmt.Sprintf("kw:%s|%s|%s|%s|%s|%s|%d", key.Email, prop, gq.From, gq.To, gq.PageRE, gq.Device, gq.Limit)
+	ck := fmt.Sprintf("kw:%s|%s|%s|%s|%s|%s|%s|%d", key.Email, prop, by, gq.From, gq.To, gq.PageRE, gq.Device, gq.Limit)
 	if e, ok := s.kwGet(ck); ok {
 		e.out.Partial = out.Partial
 		return e.out
@@ -155,6 +161,14 @@ func (s *Server) keywords(ctx context.Context, site *store.Site, q store.Query, 
 	if err != nil {
 		out.State, out.Error = "error", err.Error()
 		return out
+	}
+	if by == "page" {
+		// Google gives whole addresses; the pages here are paths
+		for i := range rows {
+			if u, err := url.Parse(rows[i].Words); err == nil && u.Host != "" {
+				rows[i].Words = cleanPath(u)
+			}
+		}
 	}
 	out.Rows = rows
 	tq := gq
@@ -179,7 +193,7 @@ func (s *Server) handleKeywords(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	writeJSON(w, http.StatusOK, s.keywords(ctx, site, q, sp, limit))
+	writeJSON(w, http.StatusOK, s.keywords(ctx, site, q, sp, r.URL.Query().Get("by"), limit))
 }
 
 // handleGoogleTest tries a key (the one typed, else the saved one) and says
@@ -238,17 +252,25 @@ func googleEmail(raw string) string {
 }
 
 // demoKeywords are made-up search words for the demo sites.
-func demoKeywords(site *store.Site, sp span, limit int) keywordsOut {
-	out := keywordsOut{State: "off", Rows: []gsc.Row{}}
+func demoKeywords(site *store.Site, sp span, by string, limit int) keywordsOut {
+	out := keywordsOut{State: "off", By: by, Rows: []gsc.Row{}}
 	var words []gsc.Row
-	switch site.Domain {
-	case "maplebakery.example":
+	switch {
+	case site.Domain == "maplebakery.example" && by == "page":
+		words = []gsc.Row{{Words: "/", Clicks: 590, Impressions: 6100, Position: 2.9}, {Words: "/cakes/birthday", Clicks: 201, Impressions: 2600, Position: 3.1},
+			{Words: "/blog/best-burek-in-town", Clicks: 139, Impressions: 5900, Position: 6.0}, {Words: "/blog/sourdough-at-home", Clicks: 118, Impressions: 9400, Position: 9.2},
+			{Words: "/menu", Clicks: 104, Impressions: 480, Position: 1.4}, {Words: "/cakes/wedding", Clicks: 47, Impressions: 2200, Position: 7.6}, {Words: "/catering", Clicks: 28, Impressions: 1500, Position: 10.8},
+			{Words: "/visit-us", Clicks: 16, Impressions: 300, Position: 2.2}}
+	case site.Domain == "fieldnotes.example" && by == "page":
+		words = []gsc.Row{{Words: "/posts/sqlite-is-enough", Clicks: 149, Impressions: 2100, Position: 2.4}, {Words: "/posts/self-hosting-on-a-raspberry-pi", Clicks: 131, Impressions: 7000, Position: 5.3},
+			{Words: "/posts/one-binary-apps", Clicks: 70, Impressions: 1700, Position: 4.1}, {Words: "/posts/backups-that-work", Clicks: 41, Impressions: 800, Position: 3.0}, {Words: "/", Clicks: 24, Impressions: 90, Position: 1.2}}
+	case site.Domain == "maplebakery.example":
 		words = []gsc.Row{{Words: "maple bakery", Clicks: 412, Impressions: 760, Position: 1.1}, {Words: "bakery sarajevo", Clicks: 238, Impressions: 3900, Position: 3.4},
 			{Words: "birthday cake sarajevo", Clicks: 171, Impressions: 2100, Position: 2.8}, {Words: "best burek in sarajevo", Clicks: 124, Impressions: 5200, Position: 6.2},
 			{Words: "sourdough recipe at home", Clicks: 96, Impressions: 8100, Position: 9.7}, {Words: "maple bakery menu", Clicks: 88, Impressions: 140, Position: 1.0},
 			{Words: "wedding cake prices", Clicks: 41, Impressions: 1900, Position: 7.9}, {Words: "gluten free bakery near me", Clicks: 37, Impressions: 950, Position: 4.6},
 			{Words: "catering sarajevo", Clicks: 22, Impressions: 1300, Position: 11.3}, {Words: "baklava order online", Clicks: 14, Impressions: 610, Position: 8.8}}
-	case "fieldnotes.example":
+	case site.Domain == "fieldnotes.example":
 		words = []gsc.Row{{Words: "sqlite is enough", Clicks: 133, Impressions: 900, Position: 1.6}, {Words: "self hosting raspberry pi", Clicks: 121, Impressions: 6400, Position: 5.1},
 			{Words: "one binary web app go", Clicks: 64, Impressions: 1500, Position: 3.9}, {Words: "backups that work", Clicks: 38, Impressions: 700, Position: 2.7},
 			{Words: "tailscale home server", Clicks: 31, Impressions: 4800, Position: 12.4}, {Words: "field notes blog", Clicks: 19, Impressions: 60, Position: 1.0}}

@@ -3,10 +3,10 @@
 import React, { useEffect, useState } from 'react'
 import { api, V1 } from '../lib/api'
 import { Link } from 'react-router-dom'
-import type { Keywords as KeywordsT, Note, Paths, Site, Speed as SpeedT, SpeedRow, When as WhenT } from '../lib/types'
+import type { Keywords as KeywordsT, Note, Paths, Robots as RobotsT, Site, Speed as SpeedT, SpeedRow, When as WhenT } from '../lib/types'
 import { RATING_WORD, SPEED, type SpeedKey, countryName, deviceIcon, flag, fmtNum, fmtSpeed, rate, useView } from '../lib/analytics'
 import { fmtDate, fmtTime, todayISO } from '../lib/format'
-import { Confirm, Field, Loading, Modal, copyText, errMsg, useToast } from './ui'
+import { Confirm, Field, Loading, Modal, Segmented, copyText, errMsg, useToast } from './ui'
 import { Icon } from './icons'
 
 /** Loads one of a site's lists for the range and filters in the address. */
@@ -24,11 +24,14 @@ function useSiteData<T>(siteID: number, what: string, extra = ''): T | null {
 // ---- the words people searched on Google ----
 
 /** What people typed into Google before they came: Google tells the site's owner, never the site. */
-export function Keywords({ site, limit = 8, wide }: { site: Site; limit?: number; wide?: boolean }) {
+export function Keywords({ site, limit = 8, wide, onDone }: { site: Site; limit?: number; wide?: boolean; onDone?: () => void }) {
   const { toast } = useToast()
-  const data = useSiteData<KeywordsT>(site.id, 'keywords', `&limit=${limit}`)
+  const view = useView()
+  const [by, setBy] = useState<'query' | 'page'>('query')
+  const data = useSiteData<KeywordsT>(site.id, 'keywords', `&limit=${limit}&by=${by}`)
   const [more, setMore] = useState(false)
-  if (!data) return <div className="rows rows-loading"><Loading /></div>
+  const pick = wide && <Segmented size="sm" className="kw-by" label="Show" value={by} onChange={setBy} options={[{ value: 'query', label: 'Words' }, { value: 'page', label: 'Pages found' }]} />
+  if (!data) return <>{pick}<div className="rows rows-loading"><Loading /></div></>
   if (data.state === 'off') return (
     <div className="rows rows-empty kw-setup">
       <p className="muted small">Google does not tell a website which words people searched for. It tells you, in Google Search Console. Connect it once and the words show here.</p>
@@ -43,20 +46,25 @@ export function Keywords({ site, limit = 8, wide }: { site: Site; limit?: number
     </div>
   )
   if (data.state === 'error') return <div className="rows rows-empty kw-setup"><p className="muted small">Google did not answer: {data.error}</p><Link className="btn sm" to="/settings/google">Google Search settings</Link></div>
-  if (!data.rows.length) return <div className="rows rows-empty muted small">Google has no search words for this time{data.partial ? ' and these filters' : ''}. It is two or three days behind, and a new site takes a while to show up.</div>
+  if (!data.rows.length) return <>{pick}<div className="rows rows-empty muted small">Google has no search words for this time{data.partial ? ' and these filters' : ''}. It is two or three days behind, and a new site takes a while to show up.</div></>
+  const pages = data.by === 'page'
   const max = Math.max(1, ...data.rows.map(r => r.clicks))
   return <>
+    {pick}
     <div className={`rows kw ${wide ? 'wide' : ''}`}>
-      <div className="rows-h"><span>Searched for</span>{wide && <span className="num" title="How often your site was shown in the results">Shown</span>}<span className="num" title="The average place in Google's results: 1 is the first result">Place</span><span className="num" title="How often someone clicked through to your site">Clicks</span></div>
-      {data.rows.map(r => (
-        <div key={r.words} className="rrow static">
+      <div className="rows-h"><span>{pages ? 'Page people found on Google' : 'Searched for'}</span>{wide && <span className="num" title="How often your site was shown in the results">Shown</span>}<span className="num" title="The average place in Google's results: 1 is the first result">Place</span><span className="num" title="How often someone clicked through to your site">Clicks</span></div>
+      {data.rows.map(r => {
+        const inner = <>
           <span className="rbar" style={{ width: `${(r.clicks / max) * 100}%` }} />
           <span className="rlabel ellipsis" title={r.words}>{r.words}</span>
           {wide && <span className="num muted tnum">{fmtNum(r.impressions)}</span>}
           <span className="num muted tnum">{r.position.toFixed(1)}</span>
           <span className="num tnum">{fmtNum(r.clicks)}</span>
-        </div>
-      ))}
+        </>
+        return pages
+          ? <button key={r.words} type="button" className="rrow" title={`Only visits that saw ${r.words}`} onClick={() => { view.addFilter('page', r.words || '/'); onDone?.() }}>{inner}</button>
+          : <div key={r.words} className="rrow static">{inner}</div>
+      })}
       {wide && <p className="muted small kw-foot">
         {data.totals && <>All searches together: {fmtNum(data.totals.clicks)} clicks, shown {fmtNum(data.totals.impressions)} times, place {data.totals.position.toFixed(1)} on average. </>}
         From Google Search Console, {fmtDate(data.from || '')} to {fmtDate(data.to || '')}. Google is two or three days behind and leaves rare searches out of the list.
@@ -65,9 +73,68 @@ export function Keywords({ site, limit = 8, wide }: { site: Site; limit?: number
     </div>
     {!wide && <button type="button" className="panel-more" onClick={() => setMore(true)}>{data.totals ? `${fmtNum(data.totals.clicks)} clicks from Google · ` : ''}Show all<Icon name="chevron-right" size={14} /></button>}
     {more && <Modal title="What people searched on Google" onClose={() => setMore(false)} size="lg" footer={<button type="button" className="btn primary" onClick={() => setMore(false)}>Done</button>}>
-      <Keywords site={site} limit={100} wide />
+      <Keywords site={site} limit={100} wide onDone={() => setMore(false)} />
     </Modal>}
   </>
+}
+
+// ---- robots ----
+
+const ROBOT_TABS: { id: string; label: string; kinds: string; about: string }[] = [
+  { id: 'ai', label: 'AI assistants', kinds: 'ai', about: 'AI assistants read pages to learn from them, or fetch one because someone asked a question (“answering someone”).' },
+  { id: 'search', label: 'Search engines', kinds: 'search', about: 'Search engines read your pages so they can show them in their results.' },
+  { id: 'preview', label: 'Link previews', kinds: 'preview', about: 'Someone pasted a link to your site into a chat or a post, and the app fetched the page to show a preview. Each one is a share.' },
+  { id: 'other', label: 'Others', kinds: 'seo,monitor,other', about: 'SEO tools, uptime checks, feed readers and scripts.' },
+]
+
+/** Who reads the site without being a person: never part of the visitors. */
+export function Robots({ site }: { site: Site }) {
+  const view = useView()
+  const [tab, setTab] = useState('ai')
+  const [name, setName] = useState('')
+  const t = ROBOT_TABS.find(x => x.id === tab) || ROBOT_TABS[0]
+  const who = useSiteData<RobotsT>(site.id, 'robots', `&by=name&kind=${t.kinds}&limit=8`)
+  const picked = who?.rows.some(r => r.value === name) ? name : ''
+  const read = useSiteData<RobotsT>(site.id, 'robots', `&by=path&kind=${t.kinds}&limit=8${picked ? `&name=${encodeURIComponent(picked)}` : ''}`)
+  const maxWho = Math.max(1, ...(who?.rows || []).map(r => r.hits))
+  const maxRead = Math.max(1, ...(read?.rows || []).map(r => r.hits))
+  return (
+    <section className="card panel panel-wide">
+      <div className="panel-head">
+        <h3><Icon name="server" size={15} />Robots that read the site</h3>
+        <div className="ptabs" role="tablist">
+          {ROBOT_TABS.map(x => <button key={x.id} type="button" role="tab" aria-selected={x.id === t.id} className={`ptab ${x.id === t.id ? 'on' : ''}`} onClick={() => { setTab(x.id); setName('') }}>{x.label}</button>)}
+        </div>
+      </div>
+      {!who ? <div className="rows rows-loading short"><Loading /></div>
+        : !who.rows.length ? <div className="rows rows-empty short muted small">None in this time. {t.about}</div>
+        : <>
+          <div className="rb">
+            <div className="pp-col">
+              <div className="rows-h"><span>Who</span><span className="num">Pages read</span></div>
+              {who.rows.map(r => (
+                <button key={r.value} type="button" className={`rrow ${r.value === picked ? 'picked' : ''}`} aria-pressed={r.value === picked} title={r.value === picked ? 'Show what all of them read' : `What ${r.value} read`} onClick={() => setName(r.value === picked ? '' : r.value)}>
+                  <span className="rbar" style={{ width: `${(r.hits / maxWho) * 100}%` }} />
+                  <span className="rlabel ellipsis">{r.value}</span>
+                  <span className="num tnum">{fmtNum(r.hits)}</span>
+                </button>
+              ))}
+            </div>
+            <div className="pp-col">
+              <div className="rows-h"><span className="ellipsis">What {picked || 'they'} read</span><span className="num">Times</span></div>
+              {!read ? <Loading /> : read.rows.map(r => (
+                <button key={r.value} type="button" className="rrow" title={`Only visits by people that saw ${r.value}`} onClick={() => view.addFilter('page', r.value)}>
+                  <span className="rbar" style={{ width: `${(r.hits / maxRead) * 100}%` }} />
+                  <span className="rlabel ellipsis" title={r.value}>{r.value}</span>
+                  <span className="num tnum">{fmtNum(r.hits)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="muted small sp-note">{t.about} Robots are not people: none of this is in the visitors above, and the filters above do not apply here.</p>
+        </>}
+    </section>
+  )
 }
 
 // ---- how fast ----

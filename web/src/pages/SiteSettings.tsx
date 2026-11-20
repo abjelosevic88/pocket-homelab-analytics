@@ -73,9 +73,9 @@ function Section({ title, sub, children }: { title: string; sub?: React.ReactNod
 
 function Install({ site }: { site: Site }) {
   const [way, setWay] = useState<'html' | 'wordpress' | 'worker' | 'spa' | 'events'>('html')
-  const worker = `// In your Worker, before your own routes. Visits then go through your
-// own domain: ad blockers leave them alone, and the visitor's place comes
-// from Cloudflare.
+  const worker = `// In your Worker's fetch(request, env, ctx), before your own routes. Visits
+// then go through your own domain: ad blockers leave them alone, and the
+// visitor's place comes from Cloudflare.
 const ANALYTICS = '${site.event_url.replace(/\/api\/event$/, '')}'
 const KEY = '${site.proxy_key}'
 const url = new URL(request.url)
@@ -90,6 +90,13 @@ if (url.pathname === '/_p/event' && request.method === 'POST') {
     'X-Pocket-Proxy-Key': KEY, 'X-Pocket-Client-IP': h.get('CF-Connecting-IP') || '',
     'X-Pocket-Country': request.cf?.country || '', 'X-Pocket-Region': request.cf?.region || '', 'X-Pocket-City': request.cf?.city || '',
   } })
+}
+// Robots (search engines, AI assistants, link previews) never run the
+// script. Tell Analytics about the pages they read; people are left out.
+const ua = request.headers.get('User-Agent') || ''
+if (request.method === 'GET' && !/\\.[a-z0-9]{2,5}$/i.test(url.pathname) && /bot|crawl|spider|slurp|GPT|OAI-|Claude|anthropic|Perplexity|facebookexternalhit|meta-external|WhatsApp|Preview|curl\\/|wget\\/|python|Go-http|uptime|monitor|lighthouse|headless|feed/i.test(ua)) {
+  ctx.waitUntil(fetch(ANALYTICS + '/api/robot', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pocket-Proxy-Key': KEY },
+    body: JSON.stringify({ d: '${site.domain}', u: request.url, ua }) }).catch(() => {}))
 }`
   const proxied = site.snippet.replace(/src="[^"]*"/, 'data-api="/_p/event" src="/_p/script.js"')
   return <>
@@ -117,6 +124,7 @@ if (url.pathname === '/_p/event' && request.method === 'POST') {
         <Snippet site={site} code={worker} />
         <div className="mt"><Snippet site={site} code={proxied} /></div>
         <p className="muted small">The key proves the Worker is yours, so the place it sends is believed. Keep it out of public code; make a new one under Data if it leaks.</p>
+        <p className="muted small">The last part is how <b>robots</b> are seen (which AI assistants and search engines read your site, and who shared a link). The Worker must run for your pages for it: with static assets, add your pages to <code>run_worker_first</code>.</p>
       </>}
       {way === 'spa' && <ol className="howto">
         <li>Single-page apps (React, Vue, Svelte, Next.js…) work as they are: page changes are seen through the browser history.</li>

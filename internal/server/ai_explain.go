@@ -78,10 +78,16 @@ func (s *Server) digest(ctx context.Context, site *store.Site, q store.Query, sp
 	list("Browsers", "browser", 5)
 	list("Events", "event", 8)
 	list("Links to other sites", "outbound", 5)
-	if kw := s.keywords(ctx, site, q, sp, 8); kw.State == "ok" && len(kw.Rows) > 0 {
+	if kw := s.keywords(ctx, site, q, sp, "query", 8); kw.State == "ok" && len(kw.Rows) > 0 {
 		fmt.Fprintf(&b, "\nWords people searched on Google before they came (%s to %s, from Google Search Console):\n", kw.From, kw.To)
 		for _, r := range kw.Rows {
 			fmt.Fprintf(&b, "- %s: %.0f clicks, shown %.0f times, place %.1f in the results\n", r.Words, r.Clicks, r.Impressions, r.Position)
+		}
+	}
+	if robots, total, err := s.store.Robots(ctx, store.RobotQuery{SiteID: site.ID, From: q.From, To: q.To, By: "name", Limit: 8}); err == nil && total > 0 {
+		b.WriteString("\nRobots that read the site (never counted as visitors; kind ai = AI assistants, search = search engines, preview = someone shared a link):\n")
+		for _, r := range robots {
+			fmt.Fprintf(&b, "- %s (%s): read %d pages, %d different\n", r.Value, r.Kind, r.Hits, r.Pages)
 		}
 	}
 	list("Searches on the site", "search", 6)

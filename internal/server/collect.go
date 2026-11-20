@@ -198,10 +198,18 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) collect(r *http.Request, in eventIn) string {
 	ctx := r.Context()
 	agent := r.UserAgent()
+	page, err := url.Parse(in.URL)
 	if ua.IsBot(agent) {
+		// a robot that runs the script is never a visitor; it is counted with the robots
+		if err == nil && page.Host != "" && strings.EqualFold(strings.TrimSpace(in.Name), "pageview") {
+			for _, d := range strings.Split(in.Domain, ",") {
+				if st := s.siteFor(ctx, strings.TrimSpace(d)); st != nil && s.ownHost(st, page.Hostname()) {
+					s.sawRobot(st, agent, page)
+				}
+			}
+		}
 		return "robot"
 	}
-	page, err := url.Parse(in.URL)
 	if err != nil || page.Host == "" {
 		return "bad url"
 	}
@@ -617,6 +625,7 @@ func (s *Server) writer(ctx context.Context) {
 			}
 		case <-tick.C:
 			flush()
+			s.flushRobots(ctx)
 		case done := <-s.flushReq:
 			for drained := false; !drained; {
 				select {
@@ -627,6 +636,7 @@ func (s *Server) writer(ctx context.Context) {
 				}
 			}
 			flush()
+			s.flushRobots(ctx)
 			close(done)
 		case <-sweep.C:
 			cache.Sweep(time.Now().Unix())

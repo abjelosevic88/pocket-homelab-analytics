@@ -36,6 +36,9 @@ type Server struct {
 
 	aiSem chan struct{} // AI help running at once
 
+	robotMu  sync.Mutex
+	robotBuf map[robotKey]int // robots seen, waiting to be written
+
 	gsc     *gsc.Client // Google Search Console
 	kwMu    sync.Mutex
 	kwCache map[string]kwEntry
@@ -79,7 +82,7 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Se
 	st.NotifyHour = cfg.NotifyHour
 	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), oidc: &oidcProvider{},
 		core:     core.New(cfg.CoreURL, core.Options{DB: st.DB, TokenFile: cfg.DataDir + "/core.token", UserAgent: cfg.UserAgent}),
-		resolved: map[string]resolvedURL{}, aiSem: make(chan struct{}, 3), gsc: gsc.New(), kwCache: map[string]kwEntry{},
+		resolved: map[string]resolvedURL{}, aiSem: make(chan struct{}, 3), gsc: gsc.New(), kwCache: map[string]kwEntry{}, robotBuf: map[robotKey]int{},
 		geo:  geo.New(cfg.GeoDB, cfg.GeoDBPath, cfg.DataDir+"/geo", cfg.UserAgent, log),
 		hits: make(chan store.Incoming, 20000), flushReq: make(chan chan struct{}),
 		salts: map[string]string{}, sitesByDomain: map[string]*store.Site{}, rate: map[string]*bucket{}, counts: map[string]int64{}}

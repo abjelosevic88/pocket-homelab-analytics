@@ -56,7 +56,7 @@
 
 - **The numbers**: visitors, visits, pages seen, pages per visit, people who left after one page, visit length. Each is compared with the period before, and the chart shows that period as a dashed line. Ranges go from today to all time, shown by hour, day, week or month.
 - **Where they came from**: channels (search, social, AI assistants, email, paid, other sites, direct), sources, the exact pages that linked to you, and `utm_` campaigns.
-- **What they searched on Google**: the words, how often you were shown, your place in the results and the clicks, from Google Search Console. One key file from your own Google account, pasted once (Settings → Google Search walks you through it).
+- **What they searched on Google**: the words, how often you were shown, your place in the results and the clicks, from Google Search Console. Also the pages Google sent people to. One key file from your own Google account, pasted once (Settings → Google Search walks you through it).
 - **What they read**: top pages with time on the page and how far down people scrolled, plus the pages people came in on and left from. Filter by a page and you see **the way through it**: where people were before and where they went next.
 - **Pages that do not exist**: the addresses people land on that your site does not have, and the page with the broken link.
 - **How fast the pages are**: how long a page takes to show, to answer a press, how much the layout jumps and how fast the server answers (Core Web Vitals, measured in the visitor's browser), by page, device, browser and country, in green, amber and red.
@@ -64,6 +64,7 @@
 - **What they used**: phone, tablet, laptop or desktop; browser and system.
 - **What they did**: links to other sites, file downloads, email and phone links pressed, forms sent (never what was typed), searches on your site, every button (optional), and your own events with properties (`pocket('Order placed', { props: { type: 'pickup' } })` or `data-pocket-event`). Click an event to see its details.
 - **Goals and funnels**: a page reached or an event sent counts as a goal, and shows the money it brought when the event says so (`revenue: { amount: 24.5, currency: 'EUR' }`). A funnel shows where people drop off between steps.
+- **Robots that read the site**: which AI assistants (learning, or answering someone's question), search engines and link previews (someone shared your link) read which pages. Robots never run the script, so your site's own server reports them (the Cloudflare Worker from Install does). They are never counted as visitors.
 - **When they come**: a week of hours, darker where more people visit.
 - **Notes on the chart**: mark the day a newsletter went out or a design changed, so a rise or a drop explains itself later.
 - **Campaign links**: a small builder for links that say where a visit came from (a newsletter, a QR code, an ad).

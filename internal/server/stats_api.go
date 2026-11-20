@@ -212,7 +212,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"site": s.siteView(ctx, site), "range": sp, "filters": q.Filters, "totals": totals, "previous": prev, "notes": notes,
+		"site": s.siteView(ctx, site), "range": sp, "filters": q.Filters, "totals": totals, "previous": prev, "notes": notes, "robots": s.store.HasRobots(ctx, site.ID),
 		"series": series, "previous_series": prevSeries, "now": time.Now().Unix(), "live": s.store.LiveNow(ctx, site.ID, time.Now().Unix()-300),
 	})
 }

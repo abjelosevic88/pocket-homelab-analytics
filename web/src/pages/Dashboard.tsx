@@ -12,7 +12,7 @@ import { Icon } from '../components/icons'
 import { MainChart } from '../components/MainChart'
 import { useCrumb } from '../components/Layout'
 import { Select } from '../components/Select'
-import { Keywords, NotesSheet, PagePaths, Speed, When } from '../components/Insights'
+import { Keywords, NotesSheet, PagePaths, Robots, Speed, When } from '../components/Insights'
 
 type Metric = 'visitors' | 'visits' | 'pageviews' | 'views_per_visit' | 'bounce_rate' | 'duration'
 
@@ -117,6 +117,7 @@ export default function Dashboard() {
         ]} />
         <When site={site} />
         <Speed site={site} />
+        {stats.robots && <Robots site={site} />}
         <Funnels site={site} />
       </div>
       {explain && <ExplainSheet site={site} onClose={() => setExplain(false)} />}

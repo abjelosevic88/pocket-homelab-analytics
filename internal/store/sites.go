@@ -126,7 +126,7 @@ func (s *Store) ResetSite(ctx context.Context, uid, id int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, q := range []string{`DELETE FROM hits WHERE site_id = ?`, `DELETE FROM visits WHERE site_id = ?`, `UPDATE sites SET first_hit = 0, last_hit = 0 WHERE id = ?`} {
+	for _, q := range []string{`DELETE FROM hits WHERE site_id = ?`, `DELETE FROM visits WHERE site_id = ?`, `DELETE FROM robots WHERE site_id = ?`, `UPDATE sites SET first_hit = 0, last_hit = 0 WHERE id = ?`} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return err
 		}
@@ -152,6 +152,9 @@ func (s *Store) OrderSites(ctx context.Context, uid int64, ids []int64) error {
 // TrimSite removes a site's visits that started before the cut (Unix seconds).
 func (s *Store) TrimSite(ctx context.Context, siteID, before int64) (int64, error) {
 	if _, err := s.DB.ExecContext(ctx, `DELETE FROM hits WHERE site_id = ? AND ts < ?`, siteID, before); err != nil {
+		return 0, err
+	}
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM robots WHERE site_id = ? AND ts < ?`, siteID, before); err != nil {
 		return 0, err
 	}
 	res, err := s.DB.ExecContext(ctx, `DELETE FROM visits WHERE site_id = ? AND started < ?`, siteID, before)

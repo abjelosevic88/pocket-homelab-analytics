@@ -67,6 +67,10 @@ func fakeGoogle(t *testing.T, pub *rsa.PublicKey, props []string) (*httptest.Ser
 			io.WriteString(w, `{"rows":[{"clicks":90,"impressions":3000,"ctr":0.03,"position":7.26}]}`)
 			return
 		}
+		if dims, _ := in["dimensions"].([]any); len(dims) == 1 && dims[0] == "page" {
+			io.WriteString(w, `{"rows":[{"keys":["https://shop.test/cakes/birthday/"],"clicks":30,"impressions":400,"ctr":0.075,"position":2.2}]}`)
+			return
+		}
 		last.Store(string(body))
 		io.WriteString(w, `{"rows":[{"keys":["gluten free cake"],"clicks":40,"impressions":800,"ctr":0.05,"position":3.44},{"keys":["shop test"],"clicks":25,"impressions":30,"ctr":0.8333,"position":1}]}`)
 	})
@@ -148,6 +152,12 @@ func TestGoogleSearchWords(t *testing.T) {
 	sent, _ := last.Load().(string)
 	if !strings.Contains(sent, `"includingRegex"`) || !strings.Contains(sent, `/cakes/.*`) || !strings.Contains(sent, `"MOBILE"`) {
 		t.Fatalf("what went to Google: %s", sent)
+	}
+
+	// the pages Google sent people to come back as paths
+	pg := a.ok(a.alice, "GET", "/api/v1/sites/"+shop+"/keywords?range=30d&by=page", nil)
+	if str(pg, "by") != "page" || str(pg["rows"].([]any)[0].(map[string]any), "words") != "/cakes/birthday" {
+		t.Fatalf("pages: %v", pg)
 	}
 
 	// a site the key was not added to

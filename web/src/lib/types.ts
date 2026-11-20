@@ -46,7 +46,7 @@ export interface Range { key: string; interval: 'hour' | 'day' | 'week' | 'month
 
 export interface Note { id: number; site_id: number; day: string; text: string; created_at: string; ts?: number }
 
-export interface Stats { site: Site; range: Range; filters: Filter[]; totals: Totals; previous: Totals; series: Point[]; previous_series: Point[]; notes: Note[]; now: number; live: number }
+export interface Stats { site: Site; range: Range; filters: Filter[]; totals: Totals; previous: Totals; series: Point[]; previous_series: Point[]; notes: Note[]; robots?: boolean; now: number; live: number }
 
 export interface Row { value: string; country?: string; visitors: number; visits?: number; pageviews?: number; events?: number; bounce_rate?: number; duration?: number; time_on_page?: number; scroll?: number }
 
@@ -63,7 +63,11 @@ export interface When { cells: number[][]; max: number; visits: number; week_sta
 
 /** What people typed into Google before they came (from Google Search Console). */
 export interface KeywordRow { words?: string; clicks: number; impressions: number; ctr: number; position: number }
-export interface Keywords { state: 'ok' | 'off' | 'no_property' | 'error'; error?: string; email?: string; property?: string; seen?: string[]; from?: string; to?: string; rows: KeywordRow[]; totals?: KeywordRow; partial?: boolean; demo?: boolean }
+export interface Keywords { by?: 'query' | 'page'; state: 'ok' | 'off' | 'no_property' | 'error'; error?: string; email?: string; property?: string; seen?: string[]; from?: string; to?: string; rows: KeywordRow[]; totals?: KeywordRow; partial?: boolean; demo?: boolean }
+
+/** A robot (or a page robots read): how many pages it read. Robots are never visitors. */
+export interface RobotRow { value: string; kind?: string; hits: number; pages?: number; last?: number }
+export interface Robots { rows: RobotRow[]; total: number; seen: boolean }
 
 export interface PathStep { value: string; times: number }
 export interface Paths { page: string; views: number; before: PathStep[]; after: PathStep[] }

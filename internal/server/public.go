@@ -26,7 +26,7 @@ func urlHost(u string) string {
 
 // publicPath is what websites may reach: the script and the collector.
 func publicPath(p string) bool {
-	return p == "/api/event" || p == "/favicon.svg" || (strings.HasPrefix(p, "/js/") && strings.HasSuffix(p, ".js"))
+	return p == "/api/event" || p == "/api/robot" || p == "/favicon.svg" || (strings.HasPrefix(p, "/js/") && strings.HasSuffix(p, ".js"))
 }
 
 // hostSwitch serves only the script and the collector on the public
