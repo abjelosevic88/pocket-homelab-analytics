@@ -16,6 +16,7 @@ import (
 
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/config"
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/geo"
+	"github.com/abjelosevic88/pocket-homelab-analytics/internal/gsc"
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/store"
 	core "github.com/abjelosevic88/pocket-homelab-core/sdk"
 )
@@ -34,6 +35,10 @@ type Server struct {
 	errors   atomic.Int64
 
 	aiSem chan struct{} // AI help running at once
+
+	gsc     *gsc.Client // Google Search Console
+	kwMu    sync.Mutex
+	kwCache map[string]kwEntry
 
 	geo      *geo.DB
 	hits     chan store.Incoming // to the writer
@@ -74,7 +79,7 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Se
 	st.NotifyHour = cfg.NotifyHour
 	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), oidc: &oidcProvider{},
 		core:     core.New(cfg.CoreURL, core.Options{DB: st.DB, TokenFile: cfg.DataDir + "/core.token", UserAgent: cfg.UserAgent}),
-		resolved: map[string]resolvedURL{}, aiSem: make(chan struct{}, 3),
+		resolved: map[string]resolvedURL{}, aiSem: make(chan struct{}, 3), gsc: gsc.New(), kwCache: map[string]kwEntry{},
 		geo:  geo.New(cfg.GeoDB, cfg.GeoDBPath, cfg.DataDir+"/geo", cfg.UserAgent, log),
 		hits: make(chan store.Incoming, 20000), flushReq: make(chan chan struct{}),
 		salts: map[string]string{}, sitesByDomain: map[string]*store.Site{}, rate: map[string]*bucket{}, counts: map[string]int64{}}

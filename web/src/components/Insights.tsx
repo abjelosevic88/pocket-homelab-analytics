@@ -2,10 +2,11 @@
 // come, the way through a page, and notes about what happened on a day.
 import React, { useEffect, useState } from 'react'
 import { api, V1 } from '../lib/api'
-import type { Note, Paths, Site, Speed as SpeedT, SpeedRow, When as WhenT } from '../lib/types'
+import { Link } from 'react-router-dom'
+import type { Keywords as KeywordsT, Note, Paths, Site, Speed as SpeedT, SpeedRow, When as WhenT } from '../lib/types'
 import { RATING_WORD, SPEED, type SpeedKey, countryName, deviceIcon, flag, fmtNum, fmtSpeed, rate, useView } from '../lib/analytics'
 import { fmtDate, fmtTime, todayISO } from '../lib/format'
-import { Confirm, Field, Loading, Modal, errMsg, useToast } from './ui'
+import { Confirm, Field, Loading, Modal, copyText, errMsg, useToast } from './ui'
 import { Icon } from './icons'
 
 /** Loads one of a site's lists for the range and filters in the address. */
@@ -18,6 +19,55 @@ function useSiteData<T>(siteID: number, what: string, extra = ''): T | null {
     return () => { live = false }
   }, [siteID, what, view.query, extra])
   return data
+}
+
+// ---- the words people searched on Google ----
+
+/** What people typed into Google before they came: Google tells the site's owner, never the site. */
+export function Keywords({ site, limit = 8, wide }: { site: Site; limit?: number; wide?: boolean }) {
+  const { toast } = useToast()
+  const data = useSiteData<KeywordsT>(site.id, 'keywords', `&limit=${limit}`)
+  const [more, setMore] = useState(false)
+  if (!data) return <div className="rows rows-loading"><Loading /></div>
+  if (data.state === 'off') return (
+    <div className="rows rows-empty kw-setup">
+      <p className="muted small">Google does not tell a website which words people searched for. It tells you, in Google Search Console. Connect it once and the words show here.</p>
+      <Link className="btn sm" to="/settings/google"><Icon name="search" size={14} />Connect Google Search</Link>
+    </div>
+  )
+  if (data.state === 'no_property') return (
+    <div className="rows rows-empty kw-setup">
+      <p className="muted small">Your Google key cannot read <b>{site.domain}</b> yet. In Search Console open {site.domain} → Settings → Users and permissions → Add user, and add this address:</p>
+      <button type="button" className="btn sm kw-mail" onClick={async () => toast(await copyText(data.email || '') ? 'Copied' : 'Could not copy', 'ok')}><Icon name="copy" size={14} /><span className="ellipsis">{data.email}</span></button>
+      {!!data.seen?.length && <p className="muted small">It can read: {data.seen.map(p => p.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/\/$/, '')).join(', ')}.</p>}
+    </div>
+  )
+  if (data.state === 'error') return <div className="rows rows-empty kw-setup"><p className="muted small">Google did not answer: {data.error}</p><Link className="btn sm" to="/settings/google">Google Search settings</Link></div>
+  if (!data.rows.length) return <div className="rows rows-empty muted small">Google has no search words for this time{data.partial ? ' and these filters' : ''}. It is two or three days behind, and a new site takes a while to show up.</div>
+  const max = Math.max(1, ...data.rows.map(r => r.clicks))
+  return <>
+    <div className={`rows kw ${wide ? 'wide' : ''}`}>
+      <div className="rows-h"><span>Searched for</span>{wide && <span className="num" title="How often your site was shown in the results">Shown</span>}<span className="num" title="The average place in Google's results: 1 is the first result">Place</span><span className="num" title="How often someone clicked through to your site">Clicks</span></div>
+      {data.rows.map(r => (
+        <div key={r.words} className="rrow static">
+          <span className="rbar" style={{ width: `${(r.clicks / max) * 100}%` }} />
+          <span className="rlabel ellipsis" title={r.words}>{r.words}</span>
+          {wide && <span className="num muted tnum">{fmtNum(r.impressions)}</span>}
+          <span className="num muted tnum">{r.position.toFixed(1)}</span>
+          <span className="num tnum">{fmtNum(r.clicks)}</span>
+        </div>
+      ))}
+      {wide && <p className="muted small kw-foot">
+        {data.totals && <>All searches together: {fmtNum(data.totals.clicks)} clicks, shown {fmtNum(data.totals.impressions)} times, place {data.totals.position.toFixed(1)} on average. </>}
+        From Google Search Console, {fmtDate(data.from || '')} to {fmtDate(data.to || '')}. Google is two or three days behind and leaves rare searches out of the list.
+        {data.partial && ' Google cannot follow every filter above: only the page and the device were applied.'}{data.demo && ' These are example words for the demo.'}
+      </p>}
+    </div>
+    {!wide && <button type="button" className="panel-more" onClick={() => setMore(true)}>{data.totals ? `${fmtNum(data.totals.clicks)} clicks from Google · ` : ''}Show all<Icon name="chevron-right" size={14} /></button>}
+    {more && <Modal title="What people searched on Google" onClose={() => setMore(false)} size="lg" footer={<button type="button" className="btn primary" onClick={() => setMore(false)}>Done</button>}>
+      <Keywords site={site} limit={100} wide />
+    </Modal>}
+  </>
 }
 
 // ---- how fast ----

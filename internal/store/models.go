@@ -213,6 +213,10 @@ type Settings struct {
 	NotifyFormat string `json:"notify_format"` // apprise | ntfy | json
 	PushPhone    bool   `json:"push_phone"`    // also to the phones with Pocket Hub (through Core)
 
+	// Google Search Console: a service account key (the JSON file), to
+	// read the words people searched on Google before they came.
+	GoogleKey string `json:"google_key"`
+
 	// Each sibling Pocket app, by slug.
 	Conns map[string]Conn `json:"conns"`
 

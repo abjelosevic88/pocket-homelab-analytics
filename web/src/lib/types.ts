@@ -17,6 +17,7 @@ export type Settings = ConnFields & {
   collect_url: string; public_url: string; geo: string; geo_kind: string
   ai_provider: 'auto' | 'pocket' | 'openai'; ai_pocket_model: string; openai_api_key: string; openai_model: string; openai_base_url: string
   setup_complete: boolean; base_url: string; demo: boolean
+  google_configured: boolean; google_email: string
 }
 
 export interface SiteOptions {
@@ -59,6 +60,10 @@ export interface Speed { dim: string; all: SpeedRow; rows: SpeedRow[]; on: boole
 
 /** Visits by day of the week (0 = Sunday) and hour, in the site's time zone. */
 export interface When { cells: number[][]; max: number; visits: number; week_start: number; tz: string }
+
+/** What people typed into Google before they came (from Google Search Console). */
+export interface KeywordRow { words?: string; clicks: number; impressions: number; ctr: number; position: number }
+export interface Keywords { state: 'ok' | 'off' | 'no_property' | 'error'; error?: string; email?: string; property?: string; seen?: string[]; from?: string; to?: string; rows: KeywordRow[]; totals?: KeywordRow; partial?: boolean; demo?: boolean }
 
 export interface PathStep { value: string; times: number }
 export interface Paths { page: string; views: number; before: PathStep[]; after: PathStep[] }

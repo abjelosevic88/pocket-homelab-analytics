@@ -5,7 +5,7 @@ import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import type { APIToken, AppSlug, ConnMode, Settings as SettingsT, User } from '../lib/types'
 import { DATE_FORMATS, TIME_FORMATS, fmtBytes, fmtDateTime, type DateFormat, type TimeFormat } from '../lib/format'
-import { Avatar, Confirm, CoreHint, Field, Loading, Modal, Segmented, SettingRow, Switch, Tabs, useAsync, useIsMobile, useToast } from '../components/ui'
+import { Avatar, Confirm, CopyField, CoreHint, Field, Loading, Modal, Segmented, SettingRow, Switch, Tabs, useAsync, useIsMobile, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { Select } from '../components/Select'
 import { ShortcutsSheet } from '../components/ShortcutsSheet'
@@ -16,13 +16,14 @@ import { announceChange } from '../lib/data'
 const ZONES = zones()
 const APP_INFO: Record<AppSlug, { name: string; icon: string }> = { mail: { name: 'Pocket Mail', icon: 'mail' }, notes: { name: 'Pocket Notes', icon: 'note' }, tasks: { name: 'Pocket Tasks', icon: 'check-square' } }
 
-type TabId = 'general' | 'notifications' | 'apps' | 'ai' | 'profile' | 'people' | 'tokens' | 'data' | 'about'
+type TabId = 'general' | 'notifications' | 'apps' | 'ai' | 'google' | 'profile' | 'people' | 'tokens' | 'data' | 'about'
 
 const TABS: { id: TabId; label: string; icon: string; sub: string }[] = [
   { id: 'general', label: 'General', icon: 'home', sub: 'Your time zone, dates and how new websites start.' },
   { id: 'notifications', label: 'Report & alerts', icon: 'bell', sub: 'The weekly report, and a message when far more people than usual come or a site goes quiet.' },
   { id: 'apps', label: 'Connected apps', icon: 'layers', sub: 'Pocket Mail for the report by email, Pocket Notes and Pocket Tasks to keep what the numbers say.' },
   { id: 'ai', label: 'AI', icon: 'sparkles', sub: 'Who explains the numbers: Pocket AI through Core, or your own OpenAI key.' },
+  { id: 'google', label: 'Google Search', icon: 'search', sub: 'The words people typed into Google before they came, from Google Search Console.' },
   { id: 'profile', label: 'Profile', icon: 'user', sub: 'Your name, email and password.' },
   { id: 'people', label: 'People', icon: 'users', sub: 'Everyone who has an account on this box. Each person has their own websites.' },
   { id: 'tokens', label: 'API & shortcuts', icon: 'key', sub: 'Personal tokens for Siri Shortcuts, scripts, dashboards and other tools.' },
@@ -70,6 +71,7 @@ export default function Settings() {
             {tab === 'notifications' && <Notifications />}
             {tab === 'apps' && <Integrations />}
             {tab === 'ai' && <AITab />}
+            {tab === 'google' && <GoogleTab />}
             {tab === 'profile' && <Profile />}
             {tab === 'people' && <Users />}
             {tab === 'tokens' && <Tokens />}
@@ -251,6 +253,73 @@ function AITab() {
         <button type="button" className="btn primary" onClick={() => save()} disabled={busy}>Save changes</button>
         {(shown === 'openai' || (!coreOn && shown === 'auto')) && <><button type="button" className="btn" onClick={() => run('openai', f.openai_base_url, f.openai_api_key)} disabled={!f.openai_api_key}>Test the OpenAI key</button>{status('openai')}</>}
       </div>
+    </div>
+  )
+}
+
+type GoogleTest = { ok: boolean; error?: string; email?: string; properties?: string[]; sites?: { site: string; domain: string; property: string }[] }
+
+/** Google Search Console: one key file, pasted once. */
+function GoogleTab() {
+  const { settings, setSettings } = useApp()
+  const { toast } = useToast()
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [test, setTest] = useState<GoogleTest | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [remove, setRemove] = useState(false)
+  if (!settings) return <Loading />
+  const on = settings.google_configured
+  const run = async (typed = '') => {
+    setTesting(true)
+    try { setTest(await api.post<GoogleTest>(`${V1}/google/test`, { key: typed })) } catch (e) { setTest({ ok: false, error: (e as Error).message }) } finally { setTesting(false) }
+  }
+  const save = async () => {
+    setBusy(true)
+    try { const s = await api.put<SettingsT>(`${V1}/settings`, { google_key: key }); setSettings(s); setKey(''); toast('Saved'); run() } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) }
+  }
+  const pick = (file?: File) => { if (file) file.text().then(setKey).catch(() => toast('That file could not be read', 'err')) }
+  const missing = test?.ok ? (test.sites || []).filter(s => !s.property) : []
+  return (
+    <div className="stack loose">
+      <Section title="What this adds" icon="search" sub="A website never learns which words someone searched for: Google keeps that to itself and shows it only to the site's owner, in Google Search Console. With a key from your Google account, the words show on each site's page under Where they came from → Search words: what was searched, how often you were shown, your place in the results, and the clicks." />
+      {on && <Section title="Connected" icon="check-circle" sub="This is the key's address. Every site you want words for must have it as a user in Search Console (step 4 below).">
+        <CopyField value={settings.google_email || 'a key whose address could not be read'} label="The key's address" />
+        <div className="row wrap mt">
+          <button type="button" className="btn" disabled={testing} onClick={() => run()}>{testing ? 'Asking Google…' : 'Test'}</button>
+          <button type="button" className="btn danger" onClick={() => setRemove(true)}>Remove the key</button>
+        </div>
+      </Section>}
+      {test && <div className={`callout ${test.ok && !missing.length ? 'ok' : test.ok ? 'info' : 'warn'}`}><Icon name={test.ok ? 'check-circle' : 'alert'} size={16} /><div>
+        {!test.ok ? <>Google said: {test.error}</> : <>
+          <b>Google accepts the key.</b>
+          <ul className="g-sites">
+            {(test.sites || []).map(s => <li key={s.domain}>{s.property ? <><Icon name="check" size={13} className="ok" /> <b>{s.site}</b>: words will show</> : <><Icon name="x" size={13} className="bad" /> <b>{s.site}</b>: not shared with the key yet. In Search Console, add <code>{test.email}</code> as a user of {s.domain}.</>}</li>)}
+          </ul>
+          {!test.sites?.length && <span>Add a website here first.</span>}
+        </>}
+      </div></div>}
+      <Section title={on ? 'Use another key' : 'Set it up'} icon="key" sub="About ten minutes, once. Everything happens in your own Google account; it costs nothing.">
+        <ol className="howto g-steps">
+          <li>Your site must be in <a href="https://search.google.com/search-console" target="_blank" rel="noreferrer">Google Search Console</a>. If it is not, add it there first (Google asks you to prove the site is yours).</li>
+          <li>Open <a href="https://console.cloud.google.com/apis/library/searchconsole.googleapis.com" target="_blank" rel="noreferrer">Google Cloud → Search Console API</a>, make a project when asked (any name), and press <b>Enable</b>.</li>
+          <li>Open <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noreferrer">Service accounts</a> → <b>Create service account</b> (any name, no roles needed) → open it → <b>Keys</b> → <b>Add key</b> → <b>JSON</b>. A file downloads. Choose it below and save.</li>
+          <li>In Search Console open your site → <b>Settings</b> → <b>Users and permissions</b> → <b>Add user</b>. Paste the key's address (it shows here after saving; it ends in <code>iam.gserviceaccount.com</code>) and choose <b>Restricted</b>.</li>
+          <li>Press <b>Test</b>. Words appear for the days Google already has; it runs two or three days behind.</li>
+        </ol>
+        <Field label="The key file" help="The JSON file from step 3. It stays on your server and is never shown again.">
+          <textarea rows={4} value={key} onChange={e => setKey(e.target.value)} placeholder={'{ "type": "service_account", "client_email": "…", "private_key": "…" }'} spellCheck={false} autoCapitalize="off" className="mono-area" />
+        </Field>
+        <div className="row wrap">
+          <label className="btn"><Icon name="upload" size={15} />Choose the file<input type="file" accept=".json,application/json" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = '' }} /></label>
+          <button type="button" className="btn primary" disabled={busy || !key.trim()} onClick={save}>{on ? 'Replace the key' : 'Save'}</button>
+          {!on && <button type="button" className="btn" disabled={testing || !key.trim()} onClick={() => run(key)}>Test without saving</button>}
+        </div>
+      </Section>
+      {remove && <Confirm title="Remove the Google key?" message="Search words stop showing on your sites. Nothing changes in your Google account." confirmLabel="Remove" onCancel={() => setRemove(false)} onConfirm={async () => {
+        try { const s = await api.put<SettingsT>(`${V1}/settings`, { google_key: '' }); setSettings(s); setTest(null); toast('Removed') } catch (e) { toast((e as Error).message, 'err') }
+        setRemove(false)
+      }} />}
     </div>
   )
 }

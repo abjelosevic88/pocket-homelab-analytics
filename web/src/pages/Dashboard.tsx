@@ -12,7 +12,7 @@ import { Icon } from '../components/icons'
 import { MainChart } from '../components/MainChart'
 import { useCrumb } from '../components/Layout'
 import { Select } from '../components/Select'
-import { NotesSheet, PagePaths, Speed, When } from '../components/Insights'
+import { Keywords, NotesSheet, PagePaths, Speed, When } from '../components/Insights'
 
 type Metric = 'visitors' | 'visits' | 'pageviews' | 'views_per_visit' | 'bounce_rate' | 'duration'
 
@@ -97,7 +97,7 @@ export default function Dashboard() {
       <div className="panels">
         {onPage && <PagePaths site={site} page={onPage} />}
         <Panel site={site} title="Where they came from" icon="compass" tabs={[
-          { dim: 'channel', label: 'Channels' }, { dim: 'source', label: 'Sources' }, { dim: 'referrer', label: 'Links' }, { dim: 'utm_campaign', label: 'Campaigns' },
+          { dim: 'channel', label: 'Channels' }, { dim: 'source', label: 'Sources' }, { dim: 'referrer', label: 'Links' }, { dim: 'utm_campaign', label: 'Campaigns' }, { dim: 'keywords', label: 'Search words' },
         ]} />
         <Panel site={site} title="What they read" icon="file" tabs={[
           { dim: 'page', label: 'Pages', extra: 'page' }, { dim: 'entry', label: 'Came in on' }, { dim: 'exit', label: 'Left from' }, ...(site.options.not_found ? [{ dim: 'notfound', label: 'Not found' }] : []),
@@ -210,6 +210,7 @@ function useRows(siteID: number, dim: string, limit: number, extra = '') {
   const view = useView()
   const [rows, setRows] = useState<Row[] | null>(null)
   useEffect(() => {
+    if (dim === 'keywords') return // Google's words have their own list
     let live = true
     api.get<{ rows: Row[] }>(`${V1}/sites/${siteID}/breakdown?${view.query}&dim=${dim}&limit=${limit}${extra}`).then(r => { if (live) setRows(r.rows) }).catch(() => { if (live) setRows([]) })
     return () => { live = false }
@@ -232,8 +233,8 @@ function Panel({ site, title, icon, tabs }: { site: Site; title: string; icon: s
           {tabs.map(x => <button key={x.dim} type="button" role="tab" aria-selected={x.dim === t.dim} className={`ptab ${x.dim === t.dim ? 'on' : ''}`} onClick={() => setTab(x.dim)}>{x.label}</button>)}
         </div>}
       </div>
-      <RowList dim={t.dim} rows={rows} onPick={onPick} />
-      {rows && rows.length >= 8 && <button type="button" className="panel-more" onClick={() => setMore(true)}>Show all<Icon name="chevron-right" size={14} /></button>}
+      {t.dim === 'keywords' ? <Keywords site={site} /> : <RowList dim={t.dim} rows={rows} onPick={onPick} />}
+      {t.dim !== 'keywords' && rows && rows.length >= 8 && <button type="button" className="panel-more" onClick={() => setMore(true)}>Show all<Icon name="chevron-right" size={14} /></button>}
       {more && <AllRows site={site} tab={t} onClose={() => setMore(false)} onPick={onPick} />}
       {missing && <MissingSheet site={site} path={missing} onClose={() => setMissing('')} />}
     </section>

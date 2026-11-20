@@ -34,7 +34,7 @@ On the page: `data-pocket-404` on any element marks a not-found page that answer
 
 | Scope | Covers |
 |---|---|
-| `analytics:read` | `GET /summary`, `/sites`, `/sites/{id}`, `/sites/{id}/stats`, `/breakdown`, `/conversions`, `/live`, `/events`, `/speed`, `/when`, `/paths`, `/notes`, `/sites/{id}/funnels/{fid}/counts`, `/day/{date}`, `/search` |
+| `analytics:read` | `GET /summary`, `/sites`, `/sites/{id}`, `/sites/{id}/stats`, `/breakdown`, `/conversions`, `/live`, `/events`, `/speed`, `/when`, `/paths`, `/notes`, `/keywords`, `/sites/{id}/funnels/{fid}/counts`, `/day/{date}`, `/search` |
 
 Visits one by one (`/sites/{id}/visits…`) are never open to a link. `GET /auth/me` answers for any link; everything else answers 403 to a link token.
 
@@ -43,6 +43,10 @@ Events on the bus (`events:read`): `analytics.spike` (`site`, `site_id`, `visito
 ## Ranges and filters
 
 Every stats call takes `range` = `today`, `yesterday`, `7d`, `30d` (default), `month`, `lastmonth`, `12mo`, `year`, `all` or `custom` with `from`/`to` (`YYYY-MM-DD`, in the site's time zone), an optional `interval` (`hour`, `day`, `week`, `month`) and any number of filters `f=<dim>:<value>` (`f=!<dim>:<value>` = is not). Filter dims: `source`, `channel`, `referrer`, `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`, `country` (ISO code), `region`, `city`, `device`, `browser`, `os`, `language`, `hostname`, `entry`, `exit`, `page` (visits that saw it; `*` = anything), `event`, `goal` (goal id).
+
+## Google Search Console
+
+`PUT /settings {"google_key": "<the service account JSON file>"}` saves a person's key (`""` removes it); settings answer only `google_configured` and `google_email`, never the key. `POST /google/test {key?}` tries the typed key (else the saved one): `{ok, email, properties[], sites[{site, domain, property}]}`. A site's property is found by its domain: `sc-domain:example.com`, else `https://example.com/` (and `www.`, `http`).
 
 ## Sites
 
@@ -67,6 +71,7 @@ Every stats call takes `range` = `today`, `yesterday`, `7d`, `30d` (default), `m
 | `GET /sites/{id}/breakdown?dim=…&limit=10&offset=0` | A top list; `dim` = a filter dim or `page`, `event`, `outbound`, `download`, `click`, `contact`, `form`, `search`, `notfound` (missing pages), `prop` (with `event` and `key`; `path` = only on that page). Rows: `value`, `visitors`, `visits`, `pageviews`, `events`, `bounce_rate`, `duration`, pages also `time_on_page` and `scroll` |
 | `GET /sites/{id}/conversions` | Each goal: `visitors`, `conversions`, `rate`, `revenue[]` (`{currency, amount}`, when its events carried money) |
 | `GET /sites/{id}/speed?dim=page&limit=10` | How fast pages were: `all` and `rows[]` by `page`, `device`, `browser`, `os` or `country`, each with `loads` and `lcp`, `inp`, `cls`, `ttfb`, `fcp` as `{p75, n}` (three of four loads stayed under `p75`; ms, `cls` a number) |
+| `GET /sites/{id}/keywords?limit=10` | The words people searched on Google (Search Console): `state` (`ok`, `off` = no key, `no_property` = the key was not added to this site, `error`), `rows[]` of `{words, clicks, impressions, ctr, position}`, `totals`, `from`/`to`, `partial` (only `page` and `device` filters reach Google). Kept 30 minutes |
 | `GET /sites/{id}/when` | Visits by weekday and hour in the site's zone: `cells[7][24]` (0 = Sunday), `max`, `visits`, `week_start` |
 | `GET /sites/{id}/paths?page=/menu` | Where people were before a page and went next: `views`, `before[]`, `after[]` of `{value, times}` (`""` = came in here / left) |
 | `GET /sites/{id}/funnels/{fid}/counts` | Each step: `visitors`, `dropped`, `rate`, `next` |

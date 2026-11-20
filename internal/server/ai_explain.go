@@ -78,6 +78,12 @@ func (s *Server) digest(ctx context.Context, site *store.Site, q store.Query, sp
 	list("Browsers", "browser", 5)
 	list("Events", "event", 8)
 	list("Links to other sites", "outbound", 5)
+	if kw := s.keywords(ctx, site, q, sp, 8); kw.State == "ok" && len(kw.Rows) > 0 {
+		fmt.Fprintf(&b, "\nWords people searched on Google before they came (%s to %s, from Google Search Console):\n", kw.From, kw.To)
+		for _, r := range kw.Rows {
+			fmt.Fprintf(&b, "- %s: %.0f clicks, shown %.0f times, place %.1f in the results\n", r.Words, r.Clicks, r.Impressions, r.Position)
+		}
+	}
 	list("Searches on the site", "search", 6)
 	list("Forms sent", "form", 5)
 	list("Email and phone links pressed", "contact", 4)

@@ -56,6 +56,7 @@
 
 - **The numbers**: visitors, visits, pages seen, pages per visit, people who left after one page, visit length. Each is compared with the period before, and the chart shows that period as a dashed line. Ranges go from today to all time, shown by hour, day, week or month.
 - **Where they came from**: channels (search, social, AI assistants, email, paid, other sites, direct), sources, the exact pages that linked to you, and `utm_` campaigns.
+- **What they searched on Google**: the words, how often you were shown, your place in the results and the clicks, from Google Search Console. One key file from your own Google account, pasted once (Settings → Google Search walks you through it).
 - **What they read**: top pages with time on the page and how far down people scrolled, plus the pages people came in on and left from. Filter by a page and you see **the way through it**: where people were before and where they went next.
 - **Pages that do not exist**: the addresses people land on that your site does not have, and the page with the broken link.
 - **How fast the pages are**: how long a page takes to show, to answer a press, how much the layout jumps and how fast the server answers (Core Web Vitals, measured in the visitor's browser), by page, device, browser and country, in green, amber and red.

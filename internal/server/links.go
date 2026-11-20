@@ -30,7 +30,7 @@ var linkRoutes = []linkRoute{
 	{"GET", regexp.MustCompile(`^/api/v1/auth/me$`), ""},
 	{"GET", regexp.MustCompile(`^/api/v1/(summary|sites|search|day/\d{4}-\d{2}-\d{2})$`), "analytics:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/sites/\d+$`), "analytics:read"},
-	{"GET", regexp.MustCompile(`^/api/v1/sites/\d+/(stats|breakdown|conversions|live|events|speed|when|paths|notes)$`), "analytics:read"},
+	{"GET", regexp.MustCompile(`^/api/v1/sites/\d+/(stats|breakdown|conversions|live|events|speed|when|paths|notes|keywords)$`), "analytics:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/sites/\d+/funnels/\d+/counts$`), "analytics:read"},
 }
 

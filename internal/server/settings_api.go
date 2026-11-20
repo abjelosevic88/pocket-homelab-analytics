@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/ai"
+	"github.com/abjelosevic88/pocket-homelab-analytics/internal/gsc"
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/notify"
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/pocket"
 	"github.com/abjelosevic88/pocket-homelab-analytics/internal/store"
@@ -41,6 +42,8 @@ func (s *Server) publicSettings(ctx context.Context, u *store.User, st store.Set
 		"collect_url": s.collectFor(ctx), "public_url": s.cfg.PublicURL, "geo": s.geo.State(), "geo_kind": s.cfg.GeoDB,
 		"ai_provider": st.AIProvider, "ai_pocket_model": st.AIPocketModel, "openai_api_key": mask(st.OpenAIKey), "openai_model": st.OpenAIModel, "openai_base_url": st.OpenAIBaseURL,
 		"setup_complete": st.SetupComplete, "base_url": s.cfg.BaseURL, "demo": s.cfg.DemoData,
+		// the Google key itself never leaves the server: only whose it is
+		"google_configured": st.GoogleKey != "", "google_email": googleEmail(st.GoogleKey),
 	}
 	for _, a := range pocketApps {
 		mode, via, detail := s.connStatus(ctx, u, st, a)
@@ -183,6 +186,17 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cur.AIPocketModel = in.AIPocketModel
+	}
+	if keys["google_key"] {
+		raw := strings.TrimSpace(in.GoogleKey)
+		if raw != "" {
+			if _, err := gsc.ParseKey(raw); err != nil {
+				bad(err.Error())
+				return
+			}
+		}
+		cur.GoogleKey = raw
+		s.kwForget()
 	}
 	secret("openai_api_key", &cur.OpenAIKey, in.OpenAIKey)
 	text("openai_model", &cur.OpenAIModel, in.OpenAIModel)

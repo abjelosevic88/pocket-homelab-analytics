@@ -640,3 +640,16 @@ b.ellipsis, span.ellipsis { display: block; }
   .rows.has-money .num.rate { display: none; }
   .rows .num.money { width: 78px; }
 }
+
+/* Google search words */
+.kw-setup { flex-direction: column; gap: 10px; }
+.kw-setup p { margin: 0; max-width: 420px; line-height: 1.5; }
+.kw-mail { max-width: 100%; }
+.kw-mail .ellipsis { max-width: 320px; font-family: var(--mono); font-size: 12px; }
+.kw-foot { margin: 12px 8px 0; line-height: 1.55; }
+.g-steps li { margin-bottom: 6px; }
+.g-sites { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.g-sites .icon { vertical-align: -2px; }
+.mono-area { font-family: var(--mono); font-size: 12px; }
+.callout.info > .icon { color: var(--accent-ink); }
+.g-steps b, .g-sites b { font-weight: 650; }
