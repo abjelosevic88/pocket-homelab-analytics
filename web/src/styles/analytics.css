@@ -660,3 +660,7 @@ b.ellipsis, span.ellipsis { display: block; }
 .rrow.picked .rbar { background: var(--accent-ring); }
 .kw-by { margin: 0 0 10px; }
 @media (max-width: 899px) { .rb { grid-template-columns: minmax(0, 1fr); } }
+
+/* a panel's title never slides under its tabs: when both do not fit on one row, the tabs take the next one */
+.panel-head h3 { flex: 1 0 auto; max-width: 100%; }
+.panel-head .ptabs { max-width: 100%; flex: 0 1 auto; }
