@@ -1,0 +1,11 @@
+# Pocket Analytics behind Caddy.
+analytics.example.com {
+	reverse_proxy pocket-analytics:8080
+}
+
+# Optional: a public hostname that serves only the script and the collector
+# (set PUBLIC_URL=https://stats.example.com). Websites load
+# https://stats.example.com/js/script.js; nothing else of the app is served there.
+# stats.example.com {
+# 	reverse_proxy pocket-analytics:8080
+# }

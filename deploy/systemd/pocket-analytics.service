@@ -1,0 +1,23 @@
+[Unit]
+Description=Pocket Analytics — who visits your websites, without cookies
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pocket-analytics
+Group=pocket-analytics
+ExecStart=/usr/local/bin/pocket-analytics
+Environment=DATA_DIR=/var/lib/pocket-analytics
+Environment=PORT=8080
+Environment=BASE_URL=https://analytics.example.com
+Environment=SECURE_COOKIES=true
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pocket-analytics
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod, cache: true }
+      - name: Build web UI
+        run: cd web && npm ci --no-audit --no-fund && npm run build
+      - name: Vet & test
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+          go vet ./...
+          go test ./...
+      - name: Build binary
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o pocket-analytics ./cmd/pocket-analytics
+      - name: Smoke test
+        run: |
+          DATA_DIR=/tmp/pan DEMO_DATA=true AUTH_MODE=none GEO_DB=off ./pocket-analytics &
+          sleep 8
+          curl -fsS http://localhost:8080/healthz
+          curl -fsS http://localhost:8080/api/v1/summary | grep -q '"week"'
+          curl -fsS http://localhost:8080/api/v1/sites | grep -q 'maplebakery.example'
+          curl -fsS 'http://localhost:8080/api/v1/sites/1/breakdown?dim=source&range=30d' | grep -q '"Google"'
+          curl -fsS http://localhost:8080/js/script.js | grep -q 'pocket_ignore'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -A 'Mozilla/5.0 (X11; Linux x86_64) Firefox/133.0' --data '{"n":"pageview","u":"https://maplebakery.example/","d":"maplebakery.example"}' http://localhost:8080/api/event)" = 202
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: pocket-analytics:pr
