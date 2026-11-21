@@ -160,7 +160,35 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
   const set = (patch: Partial<SiteOptions>) => save({ options: { ...o, ...patch } })
   const [exclude, setExclude] = useState(o.exclude.join('\n'))
   const [params, setParams] = useState((o.search_params || []).join(', '))
+  const [ips, setIps] = useState((o.ignore_ips || []).join('\n'))
+  const [finding, setFinding] = useState(false)
+  const { toast } = useToast()
+  useEffect(() => { setIps((o.ignore_ips || []).join('\n')) }, [(o.ignore_ips || []).join('\n')]) // eslint-disable-line react-hooks/exhaustive-deps
+  const saveIps = (text: string) => { const list = text.split(/[\s,]+/).map(x => x.trim()).filter(Boolean); if (list.join('\n') !== (o.ignore_ips || []).join('\n')) set({ ignore_ips: list }) }
+  // the address this browser reaches the counter from: what your own visits come from
+  const addMine = async () => {
+    setFinding(true)
+    try {
+      const r = await fetch(site.event_url.replace(/\/api\/event$/, '/api/address'), { cache: 'no-store' }).then(x => x.json()) as { ip: string }
+      if (!r.ip) throw new Error('no address')
+      const mine = r.ip.includes(':') ? r.ip.split(':').slice(0, 4).join(':') + '::/64' : r.ip
+      const list = ips.split(/[\s,]+/).filter(Boolean)
+      if (list.includes(mine)) { toast(`${mine} is already on the list`, 'ok'); return }
+      const next = [...list, mine].join('\n')
+      setIps(next); saveIps(next)
+    } catch { toast('Could not find your address. Type it in instead.', 'err') } finally { setFinding(false) }
+  }
   return <>
+    <Section title="Your own visits" sub="Your visits to your own site make the numbers look better than they are. Leave them out here.">
+      <Field label="Addresses not counted" help="Your home's internet address (and your phone's, at work…), one per line; a range works too: 203.0.113.0/24. Your address can change: check this when your own visits show up again.">
+        <textarea rows={2} className="mono-area" value={ips} onChange={e => setIps(e.target.value)} onBlur={() => saveIps(ips)} placeholder="203.0.113.7" spellCheck={false} />
+      </Field>
+      <div className="row gap wrap">
+        <button type="button" className="btn sm" disabled={finding} onClick={addMine}><Icon name="plus" size={14} />{finding ? 'Looking…' : 'Add the address I am on now'}</button>
+        <a className="btn sm ghost" href={site.ignore_url} target="_blank" rel="noreferrer"><Icon name="eye-off" size={14} />Do not count this browser</a>
+      </div>
+      <p className="muted small mt">“Do not count this browser” opens your site once and remembers it in that browser only: do it on each phone and computer you use, also when you are away from home.</p>
+    </Section>
     <Section title="What people press">
       <SettingRow title="Links to other sites" help="Which links people follow away from your site, and which email addresses and phone numbers they press."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>
       <SettingRow title="Files" help="Which PDFs, zips and other files people download."><Switch checked={o.downloads} onChange={v => set({ downloads: v })} /></SettingRow>
@@ -242,8 +270,8 @@ function Goals({ site, onChanged }: { site: Site; onChanged: () => void }) {
       <div className="list">
         {goals.map(g => (
           <div key={g.id} className="list-row">
-            <Icon name={g.kind === 'event' ? 'zap' : 'file'} size={16} className="muted" />
-            <div className="grow"><div>{g.name}</div><div className="muted small">{g.kind === 'event' ? 'Event' : 'Page'}: <code>{g.match}</code></div></div>
+            <Icon name={g.kind === 'event' ? 'zap' : g.kind === 'robot' ? 'server' : 'file'} size={16} className="muted" />
+            <div className="grow"><div>{g.name}</div><div className="muted small">{g.kind === 'event' ? 'Event' : g.kind === 'robot' ? `Read by ${g.robot || 'any robot'}` : 'Page'}: <code>{g.match}</code></div></div>
             <button type="button" className="btn ghost sm" onClick={() => setEdit(g)}>Edit</button>
             <button type="button" className="btn ghost icon-only sm" aria-label="Delete" onClick={() => setDel(g)}><Icon name="trash" size={15} /></button>
           </div>
@@ -259,6 +287,15 @@ function Goals({ site, onChanged }: { site: Site; onChanged: () => void }) {
   </>
 }
 
+/** The robots seen on a site lately, by name ("Scripts and tools" first: install scripts). */
+function useRobotNames(siteID: number) {
+  const [names, setNames] = useState<string[]>(['Scripts and tools'])
+  useEffect(() => {
+    api.get<{ rows: { value: string }[] }>(`${V1}/sites/${siteID}/robots?range=30d&by=name&limit=100`).then(r => setNames(Array.from(new Set(['Scripts and tools', ...r.rows.map(x => x.value)])))).catch(() => {})
+  }, [siteID])
+  return names
+}
+
 function useEventNames(siteID: number) {
   const [names, setNames] = useState<string[]>([])
   useEffect(() => { api.get<{ events: string[] }>(`${V1}/sites/${siteID}/events`).then(r => setNames(r.events)).catch(() => {}) }, [siteID])
@@ -269,6 +306,7 @@ function GoalSheet({ site, goal, onClose, onSaved }: { site: Site; goal: Partial
   const [g, setG] = useState(goal)
   const [err, setErr] = useState('')
   const names = useEventNames(site.id)
+  const robotNames = useRobotNames(site.id)
   const save = async () => {
     try {
       if (g.id) await api.put(`${V1}/goals/${g.id}`, g)
@@ -278,8 +316,12 @@ function GoalSheet({ site, goal, onClose, onSaved }: { site: Site; goal: Partial
   }
   return (
     <Modal title={g.id ? 'Edit the goal' : 'A new goal'} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
-      <Field label="What counts"><Segmented value={g.kind || 'event'} onChange={v => setG({ ...g, kind: v })} options={[{ value: 'event', label: 'An event' }, { value: 'page', label: 'A page' }]} /></Field>
-      {g.kind === 'page'
+      <Field label="What counts"><Segmented value={g.kind || 'event'} onChange={v => setG({ ...g, kind: v })} options={[{ value: 'event', label: 'An event' }, { value: 'page', label: 'A page' }, { value: 'robot', label: 'Read by a robot' }]} /></Field>
+      {g.kind === 'robot' ? <>
+        <p className="muted small note-lead">For things that happen outside a browser: <code>curl … /install.sh | sh</code> fetching your install script is an install run. Robots are not visits, so this goal counts times, and filters do not apply to it.</p>
+        <Field label="The page" help="The path a robot reads, like /install.sh. * stands for anything."><input value={g.match || ''} onChange={e => setG({ ...g, match: e.target.value })} placeholder="/install.sh" autoFocus /></Field>
+        <Field label="Which robot" help="“Scripts and tools” is curl, wget and the like. Any robot also counts search engines that read the page."><Select value={g.robot || ''} onChange={v => setG({ ...g, robot: v })} options={[{ value: '', label: 'Any robot' }, ...robotNames.map(n => ({ value: n, label: n }))]} onCreate={v => { setG({ ...g, robot: v }); return v }} createLabel="Use" /></Field>
+      </> : g.kind === 'page'
         ? <Field label="The page" help="The path, like /order/thanks. * stands for anything: /blog/*"><input value={g.match || ''} onChange={e => setG({ ...g, match: e.target.value })} placeholder="/order/thanks" autoFocus /></Field>
         : <Field label="The event" help={names.length ? 'Events seen on this site lately, or type a new one.' : 'The name your site sends, like “Signed up”.'}>
           {names.length ? <Select value={g.match || ''} onChange={v => setG({ ...g, match: v })} options={names.map(n => ({ value: n, label: n }))} onCreate={v => { setG({ ...g, match: v }); return v }} createLabel="Use" placeholder="Pick or type an event" /> : <input value={g.match || ''} onChange={e => setG({ ...g, match: e.target.value })} placeholder="Signed up" autoFocus />}
@@ -325,6 +367,7 @@ function FunnelSheet({ site, funnel, onClose, onSaved }: { site: Site; funnel: P
   const [steps, setSteps] = useState<Step[]>(funnel.steps || [])
   const [err, setErr] = useState('')
   const names = useEventNames(site.id)
+  const robotNames = useRobotNames(site.id)
   const put = (i: number, p: Partial<Step>) => setSteps(steps.map((s, j) => (j === i ? { ...s, ...p } : s)))
   const save = async () => {
     try {
@@ -340,16 +383,18 @@ function FunnelSheet({ site, funnel, onClose, onSaved }: { site: Site; funnel: P
         {steps.map((s, i) => (
           <li key={i} className="fstep-edit">
             <span className="fstep-n">{i + 1}</span>
-            <Segmented size="sm" value={s.kind} onChange={v => put(i, { kind: v })} options={[{ value: 'page', label: 'Page' }, { value: 'event', label: 'Event' }]} />
+            <Segmented size="sm" value={s.kind} onChange={v => put(i, { kind: v })} options={[{ value: 'page', label: 'Page' }, { value: 'event', label: 'Event' }, ...(i > 0 && i === steps.length - 1 ? [{ value: 'robot' as const, label: 'Robot', title: 'Read by a robot (install.sh by curl): only as the last step' }] : [])]} />
+            {s.kind === 'robot' && <Select ariaLabel="Which robot" value={s.robot || ''} onChange={v => put(i, { robot: v })} options={[{ value: '', label: 'Any robot' }, ...robotNames.map(n => ({ value: n, label: n }))]} />}
             {s.kind === 'event' && names.length
               ? <Select ariaLabel="Event" value={s.match} onChange={v => put(i, { match: v })} options={names.map(n => ({ value: n, label: n }))} onCreate={v => { put(i, { match: v }); return v }} createLabel="Use" placeholder="Pick an event" className="grow" />
-              : <input className="grow" value={s.match} onChange={e => put(i, { match: e.target.value })} placeholder={s.kind === 'page' ? '/order' : 'Order placed'} />}
+              : <input className="grow" value={s.match} onChange={e => put(i, { match: e.target.value })} placeholder={s.kind === 'page' ? '/order' : s.kind === 'robot' ? '/install.sh' : 'Order placed'} />}
             <input className="fstep-label" value={s.label || ''} onChange={e => put(i, { label: e.target.value })} placeholder="Label (optional)" />
             <button type="button" className="btn ghost icon-only sm" aria-label="Remove the step" disabled={steps.length <= 2} onClick={() => setSteps(steps.filter((_, j) => j !== i))}><Icon name="x" size={15} /></button>
           </li>
         ))}
       </ol>
-      <button type="button" className="btn sm" disabled={steps.length >= 8} onClick={() => setSteps([...steps, { kind: 'page', match: '' }])}><Icon name="plus" size={14} />Add a step</button>
+      <button type="button" className="btn sm" disabled={steps.length >= 8} onClick={() => setSteps([...steps.map(s => s.kind === 'robot' ? { ...s, kind: 'page' as const, robot: undefined } : s), { kind: 'page', match: '' }])}><Icon name="plus" size={14} />Add a step</button>
+      {steps.some(s => s.kind === 'robot') && <p className="muted small mt">A robot step counts times (an install script fetched), not people: it is not part of anyone's visit, so it shows as a ratio to the step before.</p>}
       {err && <p className="help bad">{err}</p>}
     </Modal>
   )

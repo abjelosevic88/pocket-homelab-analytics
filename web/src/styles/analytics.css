@@ -664,3 +664,27 @@ b.ellipsis, span.ellipsis { display: block; }
 /* a panel's title never slides under its tabs: when both do not fit on one row, the tabs take the next one */
 .panel-head h3 { flex: 1 0 auto; max-width: 100%; }
 .panel-head .ptabs { max-width: 100%; flex: 0 1 auto; }
+
+/* how people use the site (0.5.0): landing pages, ways through, reading depth, AI, searches */
+.us-bad { color: var(--danger); }
+.us-good { color: var(--success); font-weight: 600; }
+.us-table .num { width: 76px; }
+.us-way { gap: 4px; flex-wrap: nowrap; overflow: hidden; }
+.us-way > .icon { flex: none; }
+.us-step { max-width: 34%; flex: 0 1 auto; font-family: var(--mono); font-size: 12.5px; }
+.us-left { flex: none; margin-left: 4px; }
+.us-read { min-height: 0; }
+.us-sub { margin-top: 10px; }
+.us-hint { margin: 10px 8px 4px; line-height: 1.5; }
+.us-hint code { font-size: 11.5px; }
+.us-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.us-tiles .sp-r { display: block; font-weight: 500; }
+.us-agent { align-items: flex-start; padding-top: 6px; padding-bottom: 6px; }
+.us-ua { display: block; font-size: 11.5px; white-space: normal; word-break: break-all; line-height: 1.4; }
+.rows .num.us-path { width: 140px; }
+.panel-head .seg + .sel { margin-left: 0; }
+@media (max-width: 767px) {
+  .us-hide { display: none !important; }
+  .us-table .num { width: 62px; }
+  .us-step { max-width: 40%; }
+}

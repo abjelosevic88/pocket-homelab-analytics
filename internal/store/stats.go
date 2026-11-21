@@ -58,6 +58,9 @@ func PathMatch(col, pattern string) (string, any) {
 }
 
 func goalCond(alias string, g Goal) (string, []any) {
+	if g.Kind == "robot" { // robots are not visits: no hit is one
+		return "0", nil
+	}
 	if g.Kind == "event" {
 		return alias + ".name = ?", []any{g.Match}
 	}
@@ -86,7 +89,7 @@ func (q Query) where() (string, []any) {
 				var id int64
 				fmt.Sscan(f.Value, &id)
 				g, ok := q.Goals[id]
-				if !ok {
+				if !ok || g.Kind == "robot" {
 					continue
 				}
 				gc, ga := goalCond("h2", g)
@@ -399,6 +402,7 @@ type Conversion struct {
 	Conversions int     `json:"conversions"`       // how often
 	Rate        float64 `json:"rate"`              // percent of all visitors
 	Revenue     []Money `json:"revenue,omitempty"` // what it brought, per currency, most first
+	Robot       bool    `json:"robot,omitempty"`   // read by robots: Conversions = times, no visitors (the filters do not apply)
 }
 
 // Conversions counts each goal.
@@ -406,6 +410,14 @@ func (s *Store) Conversions(ctx context.Context, q Query, goals []Goal, total in
 	out := []Conversion{}
 	hw, ha := q.hitRange()
 	for _, g := range goals {
+		if g.Kind == "robot" {
+			n, err := s.RobotReads(ctx, q.SiteID, q.From, q.To, g.Match, g.Robot)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, Conversion{Goal: g, Conversions: n, Robot: true})
+			continue
+		}
 		gc, ga := goalCond("h", g)
 		c := Conversion{Goal: g}
 		if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT v.visitor), COUNT(*) FROM hits h JOIN visits v ON v.id = h.visit_id WHERE `+gc+` AND `+hw, append(ga, ha...)...).
@@ -433,17 +445,37 @@ func (s *Store) Conversions(ctx context.Context, q Query, goals []Goal, total in
 		}
 		out = append(out, c)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Visitors > out[j].Visitors })
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Robot != out[j].Robot {
+			return !out[i].Robot
+		}
+		return out[i].Visitors > out[j].Visitors
+	})
 	return out, nil
+}
+
+// RobotReads is how often robots read the pages matching a path (* = any
+// part) in [from, to); robot narrows it to one robot by name.
+func (s *Store) RobotReads(ctx context.Context, siteID, from, to int64, match, robot string) (int, error) {
+	pc, pa := PathMatch("path", match)
+	where, args := "site_id = ? AND ts >= ? AND ts < ? AND "+pc, []any{siteID, from / 3600 * 3600, to, pa}
+	if robot != "" {
+		where += " AND name = ?"
+		args = append(args, robot)
+	}
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT COALESCE(SUM(hits), 0) FROM robots WHERE `+where, args...).Scan(&n)
+	return n, err
 }
 
 // StepCount is how many visitors reached a funnel step.
 type StepCount struct {
 	Step     Step    `json:"step"`
 	Visitors int     `json:"visitors"`
-	Dropped  int     `json:"dropped"` // left after the step before
-	Rate     float64 `json:"rate"`    // percent of the first step
-	Next     float64 `json:"next"`    // percent of the step before
+	Dropped  int     `json:"dropped"`         // left after the step before
+	Rate     float64 `json:"rate"`            // percent of the first step
+	Next     float64 `json:"next"`            // percent of the step before
+	Robot    bool    `json:"robot,omitempty"` // a robot step: Visitors = times read, not people
 }
 
 // FunnelCounts walks each visit's hits in order through the steps.
@@ -454,6 +486,30 @@ func (s *Store) FunnelCounts(ctx context.Context, q Query, steps []Step) ([]Step
 	}
 	if len(steps) == 0 {
 		return out, nil
+	}
+	// a last robot step (install.sh run by curl) is counted on its own: a
+	// robot is not in anyone's visit
+	if last := steps[len(steps)-1]; last.Kind == "robot" {
+		head, err := s.FunnelCounts(ctx, q, steps[:len(steps)-1])
+		if err != nil {
+			return nil, err
+		}
+		n, err := s.RobotReads(ctx, q.SiteID, q.From, q.To, last.Match, last.Robot)
+		if err != nil {
+			return nil, err
+		}
+		rs := StepCount{Step: last, Visitors: n, Robot: true}
+		if k := len(head); k > 0 {
+			prev := head[k-1].Visitors
+			rs.Dropped = max(prev-n, 0)
+			if prev > 0 {
+				rs.Next = round1(float64(n) * 100 / float64(prev))
+			}
+			if head[0].Visitors > 0 {
+				rs.Rate = round1(float64(n) * 100 / float64(head[0].Visitors))
+			}
+		}
+		return append(head, rs), nil
 	}
 	var conds []string
 	var cargs []any

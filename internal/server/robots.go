@@ -29,6 +29,18 @@ type robotKey struct {
 	path       string
 }
 
+// agentKey is a robot without a name on a site; agentSeen is how often and where.
+type agentKey struct {
+	site  int64
+	agent string
+}
+
+type agentSeen struct {
+	hits int
+	path string
+	last int64
+}
+
 // cleanPath is a page's path the way pages are kept: unescaped, no trailing slash.
 func cleanPath(page *url.URL) string {
 	path := page.EscapedPath()
@@ -50,10 +62,18 @@ func (s *Server) sawRobot(site *store.Site, agent string, page *url.URL) bool {
 	if !ok {
 		return false
 	}
-	k := robotKey{site: site.ID, ts: time.Now().Unix() / 3600 * 3600, name: name, kind: kind, path: cleanPath(page)}
+	now := time.Now().Unix()
+	k := robotKey{site: site.ID, ts: now / 3600 * 3600, name: name, kind: kind, path: cleanPath(page)}
 	s.robotMu.Lock()
 	if len(s.robotBuf) < 50000 {
 		s.robotBuf[k]++
+	}
+	// a robot without a name: keep what it calls itself, to tell them apart
+	if name == ua.UnnamedRobot {
+		ak := agentKey{site: site.ID, agent: clip(strings.TrimSpace(agent), 300)}
+		if a, ok := s.agentBuf[ak]; ok || len(s.agentBuf) < 5000 {
+			s.agentBuf[ak] = agentSeen{hits: a.hits + 1, path: k.path, last: now}
+		}
 	}
 	s.robotMu.Unlock()
 	return true
@@ -62,12 +82,12 @@ func (s *Server) sawRobot(site *store.Site, agent string, page *url.URL) bool {
 // flushRobots writes what was noted since the last time.
 func (s *Server) flushRobots(ctx context.Context) {
 	s.robotMu.Lock()
-	if len(s.robotBuf) == 0 {
+	if len(s.robotBuf) == 0 && len(s.agentBuf) == 0 {
 		s.robotMu.Unlock()
 		return
 	}
-	buf := s.robotBuf
-	s.robotBuf = map[robotKey]int{}
+	buf, agents := s.robotBuf, s.agentBuf
+	s.robotBuf, s.agentBuf = map[robotKey]int{}, map[agentKey]agentSeen{}
 	s.robotMu.Unlock()
 	hits := make([]store.RobotHit, 0, len(buf))
 	for k, n := range buf {
@@ -77,6 +97,15 @@ func (s *Server) flushRobots(ctx context.Context) {
 	defer cancel()
 	if err := s.store.AddRobotHits(wctx, hits); err != nil {
 		s.log.Error("robots: saving failed", "rows", len(hits), "err", err)
+	}
+	if len(agents) > 0 {
+		list := make([]store.RobotAgent, 0, len(agents))
+		for k, a := range agents {
+			list = append(list, store.RobotAgent{SiteID: k.site, Agent: k.agent, Hits: a.hits, Path: a.path, Last: a.last})
+		}
+		if err := s.store.AddRobotAgents(wctx, list); err != nil {
+			s.log.Error("robots: saving agents failed", "rows", len(list), "err", err)
+		}
 	}
 }
 
@@ -144,4 +173,20 @@ func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "total": total, "seen": s.store.HasRobots(r.Context(), site.ID)})
+}
+
+// handleRobotAgents lists what the robots without a name call themselves
+// (their User-Agent), most first.
+func (s *Server) handleRobotAgents(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.mySite(w, r)
+	if !ok {
+		return
+	}
+	_, sp := s.queryFor(r, site)
+	rows, err := s.store.RobotAgents(r.Context(), site.ID, sp.From.Unix(), queryInt(r, "limit"))
+	if err != nil {
+		s.fail(w, err, "robots")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rows": rows})
 }

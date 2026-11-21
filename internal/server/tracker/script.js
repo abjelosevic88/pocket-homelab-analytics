@@ -33,7 +33,7 @@
     var p = { n: name, u: opts.u || l.href, d: domain, r: opts.r === undefined ? null : opts.r, w: w.innerWidth }
     if (hash) p.h = 1
     if (opts.props) p.p = opts.props
-    if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd; if (opts.v) p.v = opts.v }
+    if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd; if (opts.v) p.v = opts.v; if (opts.sec && opts.sec.length) p.sec = opts.sec }
     if (opts.rev) p.$ = opts.rev
     var body = JSON.stringify(p)
     try {
@@ -105,12 +105,40 @@
     if (since) t += now() - since
     return t
   }
+  // ---- the parts of the page that were on screen: elements marked
+  // data-pocket-section="Pricing" (a quarter of one in view, or half the screen) ----
+  var secOrder = [], secSeen = {}, secSent = 0, secCount = 0, secObs = null
+  function watchSections() {
+    if (secObs) secObs.disconnect()
+    secOrder = []; secSeen = {}; secSent = 0; secCount = 0
+    var els = d.querySelectorAll('[data-pocket-section]'), i, nm
+    if (!els.length || !w.IntersectionObserver) return
+    secObs = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        var vh = w.innerHeight || 1
+        if (!e.isIntersecting || (e.intersectionRatio < 0.25 && e.intersectionRect.height < vh / 2)) return
+        var n = e.target.getAttribute('data-pocket-section')
+        if (n && !secSeen[n]) { secSeen[n] = 1; secCount++ }
+        secObs.unobserve(e.target)
+      })
+    }, { threshold: [0, 0.1, 0.25, 0.5] })
+    for (i = 0; i < els.length; i++) {
+      nm = (els[i].getAttribute('data-pocket-section') || '').trim()
+      if (nm && secOrder.indexOf(nm) < 0) secOrder.push(nm)
+      secObs.observe(els[i])
+    }
+  }
+  function sectionsSeen() {
+    var out = [], i
+    for (i = 0; i < secOrder.length; i++) if (secSeen[secOrder[i]]) out.push(secOrder[i])
+    return out
+  }
   function report() {
     if (!page) return
     var t = engaged()
-    if (t < 1000 && maxScroll <= sentScroll) return
-    send('engagement', { u: page, e: t, sd: maxScroll, v: page === loaded && speed && PO ? vit : null })
-    shown = 0; since = d.visibilityState === 'visible' ? now() : 0; sentScroll = maxScroll
+    if (t < 1000 && maxScroll <= sentScroll && secCount <= secSent) return
+    send('engagement', { u: page, e: t, sd: maxScroll, v: page === loaded && speed && PO ? vit : null, sec: secCount > secSent ? sectionsSeen() : null })
+    shown = 0; since = d.visibilityState === 'visible' ? now() : 0; sentScroll = maxScroll; secSent = secCount
   }
   d.addEventListener('visibilitychange', function () {
     if (d.visibilityState === 'hidden') { report(); hid = true }
@@ -130,7 +158,9 @@
     page = l.href
     shown = 0; since = d.visibilityState === 'visible' ? now() : 0
     maxScroll = 0; sentScroll = 0
-    setTimeout(onScroll, 300)
+    if (secObs) secObs.disconnect()
+    secOrder = []; secSeen = {}; secSent = 0; secCount = 0
+    setTimeout(function () { onScroll(); watchSections() }, 300)
     send('pageview', { r: first ? d.referrer || null : null })
     if (first && missing && notFound()) send('404', { props: { from: cameFrom() } })
     first = false

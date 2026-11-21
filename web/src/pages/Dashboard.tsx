@@ -13,6 +13,7 @@ import { MainChart } from '../components/MainChart'
 import { useCrumb } from '../components/Layout'
 import { Select } from '../components/Select'
 import { Keywords, NotesSheet, PagePaths, Robots, Speed, When } from '../components/Insights'
+import { AIPanel, Journeys, Landing, Reading, Searches } from '../components/Usage'
 
 type Metric = 'visitors' | 'visits' | 'pageviews' | 'views_per_visit' | 'bounce_rate' | 'duration'
 
@@ -102,6 +103,8 @@ export default function Dashboard() {
         <Panel site={site} title="What they read" icon="file" tabs={[
           { dim: 'page', label: 'Pages', extra: 'page' }, { dim: 'entry', label: 'Came in on' }, { dim: 'exit', label: 'Left from' }, ...(site.options.not_found ? [{ dim: 'notfound', label: 'Not found' }] : []),
         ]} />
+        <Landing site={site} />
+        <Journeys site={site} />
         <Panel site={site} title="Where they are" icon="globe" tabs={[
           { dim: 'country', label: 'Countries' }, { dim: 'region', label: 'Regions' }, { dim: 'city', label: 'Cities' }, { dim: 'language', label: 'Languages' },
         ]} />
@@ -112,11 +115,13 @@ export default function Dashboard() {
         {onEvent ? <EventDetails site={site} event={onEvent} /> : <Panel site={site} title="What they did" icon="zap" tabs={[
           { dim: 'event', label: 'Events' }, ...(site.options.forms ? [{ dim: 'form', label: 'Forms' }] : []), ...(site.options.search ? [{ dim: 'search', label: 'Searches' }] : []), ...(site.options.clicks ? [{ dim: 'click', label: 'Clicks' }] : []),
         ]} />}
+        <Reading site={site} page={onPage && !onPage.includes('*') ? onPage : undefined} />
         <Panel site={site} title="Links they followed" icon="external" tabs={[
           { dim: 'outbound', label: 'Other sites' }, { dim: 'download', label: 'Files' }, { dim: 'contact', label: 'Email & phone' },
         ]} />
         <When site={site} />
         <Speed site={site} />
+        <AIPanel site={site} />
         {stats.robots && <Robots site={site} />}
         <Funnels site={site} />
       </div>
@@ -234,8 +239,8 @@ function Panel({ site, title, icon, tabs }: { site: Site; title: string; icon: s
           {tabs.map(x => <button key={x.dim} type="button" role="tab" aria-selected={x.dim === t.dim} className={`ptab ${x.dim === t.dim ? 'on' : ''}`} onClick={() => setTab(x.dim)}>{x.label}</button>)}
         </div>}
       </div>
-      {t.dim === 'keywords' ? <Keywords site={site} /> : <RowList dim={t.dim} rows={rows} onPick={onPick} />}
-      {t.dim !== 'keywords' && rows && rows.length >= 8 && <button type="button" className="panel-more" onClick={() => setMore(true)}>Show all<Icon name="chevron-right" size={14} /></button>}
+      {t.dim === 'keywords' ? <Keywords site={site} /> : t.dim === 'search' ? <Searches site={site} /> : <RowList dim={t.dim} rows={rows} onPick={onPick} />}
+      {t.dim !== 'keywords' && t.dim !== 'search' && rows && rows.length >= 8 && <button type="button" className="panel-more" onClick={() => setMore(true)}>Show all<Icon name="chevron-right" size={14} /></button>}
       {more && <AllRows site={site} tab={t} onClose={() => setMore(false)} onPick={onPick} />}
       {missing && <MissingSheet site={site} path={missing} onClose={() => setMissing('')} />}
     </section>
@@ -316,18 +321,31 @@ function EventDetails({ site, event }: { site: Site; event: string }) {
     return () => { live = false }
   }, [site.id, event])
   const rows = useRows(site.id, 'prop', 8, `&event=${encodeURIComponent(event)}&key=${encodeURIComponent(key)}`)
+  // "On which page": where the event happened (also all there is when nothing more was sent)
+  const [pagesTab, setPagesTab] = useState(false)
+  const onPages = pagesTab || (keys !== null && !keys.length)
+  const [pages, setPages] = useState<Row[] | null>(null)
+  useEffect(() => {
+    if (!onPages) return
+    let live = true
+    setPages(null)
+    api.get<{ rows: Row[] }>(`${V1}/sites/${site.id}/event-pages?${view.query}&event=${encodeURIComponent(event)}&limit=8`).then(r => { if (live) setPages(r.rows) }).catch(() => { if (live) setPages([]) })
+    return () => { live = false }
+  }, [site.id, event, onPages, view.query])
   return (
     <section className="card panel">
       <div className="panel-head">
         <h3><Icon name="zap" size={15} /><span className="ellipsis">{eventLabel(event)}</span></h3>
         <button type="button" className="btn ghost sm" onClick={() => view.removeFilter('event')}><Icon name="chevron-left" size={14} />All events</button>
       </div>
-      {!keys ? <div className="rows rows-loading"><Loading /></div>
-        : !keys.length ? <div className="rows rows-empty muted small">Nothing more was sent with this event. Details come with it like this: <code>pocket('{event}', {'{'} props: {'{'} plan: 'pro' {'}'} {'}'})</code></div>
-        : <>
-          {keys.length > 1 && <div className="ptabs detail-keys" role="tablist">{keys.map(k => <button key={k} type="button" role="tab" aria-selected={k === key} className={`ptab ${k === key ? 'on' : ''}`} onClick={() => setKey(k)}>{k}</button>)}</div>}
-          <RowList dim="prop" head={key} rows={key ? rows : null} />
-        </>}
+      {!keys ? <div className="rows rows-loading"><Loading /></div> : <>
+        <div className="ptabs detail-keys" role="tablist">
+          {keys.map(k => <button key={k} type="button" role="tab" aria-selected={!onPages && k === key} className={`ptab ${!onPages && k === key ? 'on' : ''}`} onClick={() => { setKey(k); setPagesTab(false) }}>{k}</button>)}
+          <button type="button" role="tab" aria-selected={onPages} className={`ptab ${onPages ? 'on' : ''}`} onClick={() => setPagesTab(true)}>On which page</button>
+        </div>
+        {onPages ? <RowList dim="prop" head="Page" rows={pages} /> : <RowList dim="prop" head={key} rows={key ? rows : null} />}
+        {!keys.length && <p className="muted small sp-note">Nothing more was sent with this event. Details come with it like this: <code>pocket('{event}', {'{'} props: {'{'} plan: 'pro' {'}'} {'}'})</code></p>}
+      </>}
     </section>
   )
 }
@@ -354,7 +372,14 @@ function Goals({ site }: { site: Site }) {
         : !goals.length ? <div className="rows rows-empty muted small">Goals count what matters: an order, a sign-up, a page reached. <Link to={`/sites/${site.id}/settings/goals`}>Add your first goal</Link>.</div>
         : <div className={`rows ${money ? 'has-money' : ''}`}>
           <div className="rows-h"><span>Goal</span>{money && <span className="num money">Brought</span>}<span className="num rate">Rate</span><span className="num">People</span></div>
-          {goals.map(g => (
+          {goals.map(g => g.robot ? (
+            <div key={g.goal.id} className="rrow static" title={`Read by ${g.goal.robot || 'any robot'}: ${g.goal.match}. Robots are not visits, so this is a count of times and the filters above do not apply.`}>
+              <span className="rlabel ellipsis"><Icon name="server" size={13} className="muted" />{g.goal.name}</span>
+              {money && <span className="num money muted">—</span>}
+              <span className="num muted rate small">times</span>
+              <span className="num tnum">{fmtNum(g.conversions)}</span>
+            </div>
+          ) : (
             <button key={g.goal.id} type="button" className="rrow" title="Only visits that reached it" onClick={() => view.addFilter('goal', String(g.goal.id))}>
               <span className="rbar goal" style={{ width: `${Math.min(100, g.rate)}%` }} />
               <span className="rlabel ellipsis"><Icon name={g.goal.kind === 'event' ? 'zap' : 'file'} size={13} className="muted" />{g.goal.name}</span>
@@ -399,7 +424,7 @@ function Funnels({ site }: { site: Site }) {
             <div key={i} className="fstep">
               <div className="fstep-top"><span className="fstep-n">{i + 1}</span><span className="ellipsis">{s.step.label || s.step.match}</span><span className="num tnum">{fmtNum(s.visitors)}</span></div>
               <div className="fstep-bar"><span style={{ width: `${steps[0].visitors ? (s.visitors / steps[0].visitors) * 100 : 0}%` }} /></div>
-              <div className="fstep-foot muted small">{i === 0 ? 'started' : <>{s.next.toFixed(0)}% went on · {fmtNum(s.dropped)} left here · {s.rate.toFixed(1)}% of all who started</>}</div>
+              <div className="fstep-foot muted small">{i === 0 ? 'started' : s.robot ? <>times read by {s.step.robot || 'robots'} · {s.next.toFixed(0)}% of the step before (robots are not tied to a visit, so this is a ratio, not people)</> : <>{s.next.toFixed(0)}% went on · {fmtNum(s.dropped)} left here · {s.rate.toFixed(1)}% of all who started</>}</div>
             </div>
           ))}
         </div>}

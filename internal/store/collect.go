@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 )
 
@@ -22,6 +23,7 @@ type Incoming struct {
 	Engaged     int64  // engagement: milliseconds since the last report
 	Scroll      int    // engagement: how far down, 0–100
 	Vitals      Vitals // engagement: how fast the page was
+	Sections    string // engagement: JSON list of the page's parts that were on screen
 	Revenue     float64
 	Currency    string
 	Visit       Visit // what a new visit starts with
@@ -86,11 +88,28 @@ func (s *Store) SaveHits(ctx context.Context, batch []Incoming, cache VisitCache
 			if id == 0 {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE hits SET engaged = engaged + ?, scroll = MAX(scroll, ?),
-				ttfb = COALESCE(?, ttfb), fcp = COALESCE(?, fcp), lcp = COALESCE(?, lcp), inp = COALESCE(?, inp), cls = COALESCE(?, cls)
-				WHERE id = (SELECT id FROM hits WHERE visit_id = ? AND name = 'pageview' AND path = ? ORDER BY ts DESC LIMIT 1)`,
-				in.Engaged, in.Scroll, in.Vitals.TTFB, in.Vitals.FCP, in.Vitals.LCP, in.Vitals.INP, in.Vitals.CLS, id, in.Path); err != nil {
+			var hid int64
+			err := tx.QueryRowContext(ctx, `SELECT id FROM hits WHERE visit_id = ? AND name = 'pageview' AND path = ? ORDER BY ts DESC, id DESC LIMIT 1`, id, in.Path).Scan(&hid)
+			if err != nil && err != sql.ErrNoRows {
 				return 0, err
+			}
+			if hid != 0 {
+				if _, err := tx.ExecContext(ctx, `UPDATE hits SET engaged = engaged + ?, scroll = MAX(scroll, ?),
+					ttfb = COALESCE(?, ttfb), fcp = COALESCE(?, fcp), lcp = COALESCE(?, lcp), inp = COALESCE(?, inp), cls = COALESCE(?, cls) WHERE id = ?`,
+					in.Engaged, in.Scroll, in.Vitals.TTFB, in.Vitals.FCP, in.Vitals.LCP, in.Vitals.INP, in.Vitals.CLS, hid); err != nil {
+					return 0, err
+				}
+				if in.Sections != "" {
+					var had string
+					if err := tx.QueryRowContext(ctx, `SELECT sections FROM hits WHERE id = ?`, hid).Scan(&had); err != nil {
+						return 0, err
+					}
+					if merged := MergeSections(had, in.Sections); merged != had {
+						if _, err := tx.ExecContext(ctx, `UPDATE hits SET sections = ? WHERE id = ?`, merged, hid); err != nil {
+							return 0, err
+						}
+					}
+				}
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE visits SET engaged = engaged + ?, last = MAX(last, ?) WHERE id = ?`, in.Engaged, in.TS, id); err != nil {
 				return 0, err
@@ -140,4 +159,43 @@ func (s *Store) SaveHits(ctx context.Context, batch []Incoming, cache VisitCache
 		}
 	}
 	return saved, tx.Commit()
+}
+
+// MergeSections joins two JSON lists of section names, keeping page order:
+// what was seen before stays where it was, new names go after the name
+// they followed in the newer list.
+func MergeSections(had, more string) string {
+	var a, b []string
+	_ = json.Unmarshal([]byte(had), &a)
+	if json.Unmarshal([]byte(more), &b) != nil || len(b) == 0 {
+		return had
+	}
+	seen := map[string]bool{}
+	for _, n := range a {
+		seen[n] = true
+	}
+	out := append([]string{}, a...)
+	for i, n := range b {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		at := len(out)
+		if i > 0 {
+			for j, m := range out {
+				if m == b[i-1] {
+					at = j + 1
+					break
+				}
+			}
+		} else if len(out) > 0 {
+			at = 0
+		}
+		out = append(out[:at], append([]string{n}, out[at:]...)...)
+	}
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	j, _ := json.Marshal(out)
+	return string(j)
 }

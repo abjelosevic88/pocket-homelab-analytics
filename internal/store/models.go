@@ -37,6 +37,7 @@ type SiteOptions struct {
 	Hash         bool     `json:"hash"`          // pages are told apart by #… (single-page apps)
 	Localhost    bool     `json:"localhost"`     // count hits from localhost (testing)
 	Exclude      []string `json:"exclude"`       // paths not counted (* = any part)
+	IgnoreIPs    []string `json:"ignore_ips"`    // addresses not counted (an IP or a range like 203.0.113.0/24): your own
 	KeepDays     int      `json:"keep_days"`     // visits older than this are removed (0 = keep)
 	Spike        bool     `json:"spike"`         // tell me when far more people than usual come
 	Quiet        bool     `json:"quiet"`         // tell me when nobody came for a day (tracking broken?)
@@ -50,7 +51,7 @@ var DefaultSearchParams = []string{"q", "s", "search", "query"}
 // before an option existed gets for it).
 func DefaultOptions() SiteOptions {
 	return SiteOptions{Outbound: true, Downloads: true, Forms: true, NotFound: true, Search: true, Speed: true,
-		SearchParams: append([]string{}, DefaultSearchParams...), Spike: true, Quiet: true, Weekly: true, Exclude: []string{}}
+		SearchParams: append([]string{}, DefaultSearchParams...), Spike: true, Quiet: true, Weekly: true, Exclude: []string{}, IgnoreIPs: []string{}}
 }
 
 // Site is one website being counted.
@@ -83,15 +84,17 @@ type Goal struct {
 	ID        int64  `json:"id"`
 	SiteID    int64  `json:"site_id"`
 	Name      string `json:"name"`
-	Kind      string `json:"kind"` // page | event
+	Kind      string `json:"kind"` // page | event | robot (pages read by robots, e.g. install.sh by curl)
 	Match     string `json:"match"`
+	Robot     string `json:"robot"` // robot goals: only this robot ("" = any)
 	CreatedAt string `json:"created_at"`
 }
 
 // Step is one step of a funnel.
 type Step struct {
-	Kind  string `json:"kind"` // page | event
+	Kind  string `json:"kind"` // page | event | robot (only last: not tied to a visit)
 	Match string `json:"match"`
+	Robot string `json:"robot,omitempty"`
 	Label string `json:"label,omitempty"`
 }
 
@@ -146,6 +149,8 @@ type Hit struct {
 	Props   map[string]string `json:"props,omitempty"`
 	Engaged int64             `json:"engaged"`
 	Scroll  int               `json:"scroll"`
+	// the parts of the page that were on screen (data-pocket-section)
+	Sections []string `json:"sections,omitempty"`
 	// money the event brought, when it said so
 	Revenue  float64 `json:"revenue,omitempty"`
 	Currency string  `json:"currency,omitempty"`

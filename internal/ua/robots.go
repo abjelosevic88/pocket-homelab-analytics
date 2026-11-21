@@ -104,6 +104,9 @@ var robotRules = []robotRule{
 	rr(`curl/|wget/|python-|aiohttp|httpx|go-http|java/|okhttp|axios|node-fetch|undici|httpclient|libwww|Scrapy|Ruby/|PHP/|Faraday|Guzzle|Postman|insomnia`, "Scripts and tools", RobotOther),
 }
 
+// UnnamedRobot is what a robot is called that no rule knows.
+const UnnamedRobot = "Other robots"
+
 // Robot names a robot from its User-Agent: who it is and what kind. ok is
 // false for a person's browser.
 func Robot(agent string) (name, kind string, ok bool) {
@@ -114,7 +117,7 @@ func Robot(agent string) (name, kind string, ok bool) {
 		}
 	}
 	if IsBot(agent) {
-		return "Other robots", RobotOther, true
+		return UnnamedRobot, RobotOther, true
 	}
 	return "", "", false
 }

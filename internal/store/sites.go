@@ -24,6 +24,9 @@ func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
 	if s.Options.SearchParams == nil {
 		s.Options.SearchParams = append([]string{}, DefaultSearchParams...)
 	}
+	if s.Options.IgnoreIPs == nil {
+		s.Options.IgnoreIPs = []string{}
+	}
 	if s.Also == nil {
 		s.Also = []string{}
 	}
@@ -74,6 +77,9 @@ func (s *Store) CreateSite(ctx context.Context, st *Site) error {
 	}
 	if st.Options.SearchParams == nil {
 		st.Options.SearchParams = append([]string{}, DefaultSearchParams...)
+	}
+	if st.Options.IgnoreIPs == nil {
+		st.Options.IgnoreIPs = []string{}
 	}
 	var pos int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) + 1 FROM sites WHERE user_id = ?`, st.UserID).Scan(&pos)
@@ -167,7 +173,7 @@ func (s *Store) TrimSite(ctx context.Context, siteID, before int64) (int64, erro
 // ---- goals ----
 
 func (s *Store) ListGoals(ctx context.Context, uid, siteID int64) ([]Goal, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, site_id, name, kind, match, created_at FROM goals WHERE user_id = ? AND site_id = ? ORDER BY id`, uid, siteID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, site_id, name, kind, match, robot, created_at FROM goals WHERE user_id = ? AND site_id = ? ORDER BY id`, uid, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +181,7 @@ func (s *Store) ListGoals(ctx context.Context, uid, siteID int64) ([]Goal, error
 	out := []Goal{}
 	for rows.Next() {
 		var g Goal
-		if err := rows.Scan(&g.ID, &g.SiteID, &g.Name, &g.Kind, &g.Match, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.SiteID, &g.Name, &g.Kind, &g.Match, &g.Robot, &g.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
@@ -185,7 +191,7 @@ func (s *Store) ListGoals(ctx context.Context, uid, siteID int64) ([]Goal, error
 
 func (s *Store) GetGoal(ctx context.Context, uid, id int64) (*Goal, error) {
 	var g Goal
-	err := s.DB.QueryRowContext(ctx, `SELECT id, site_id, name, kind, match, created_at FROM goals WHERE id = ? AND user_id = ?`, id, uid).Scan(&g.ID, &g.SiteID, &g.Name, &g.Kind, &g.Match, &g.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT id, site_id, name, kind, match, robot, created_at FROM goals WHERE id = ? AND user_id = ?`, id, uid).Scan(&g.ID, &g.SiteID, &g.Name, &g.Kind, &g.Match, &g.Robot, &g.CreatedAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -193,7 +199,7 @@ func (s *Store) GetGoal(ctx context.Context, uid, id int64) (*Goal, error) {
 }
 
 func (s *Store) CreateGoal(ctx context.Context, uid int64, g *Goal) error {
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO goals (user_id, site_id, name, kind, match) VALUES (?, ?, ?, ?, ?)`, uid, g.SiteID, g.Name, g.Kind, g.Match)
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO goals (user_id, site_id, name, kind, match, robot) VALUES (?, ?, ?, ?, ?, ?)`, uid, g.SiteID, g.Name, g.Kind, g.Match, g.Robot)
 	if err != nil {
 		return err
 	}
@@ -206,7 +212,7 @@ func (s *Store) CreateGoal(ctx context.Context, uid int64, g *Goal) error {
 }
 
 func (s *Store) UpdateGoal(ctx context.Context, uid int64, g *Goal) error {
-	res, err := s.DB.ExecContext(ctx, `UPDATE goals SET name = ?, kind = ?, match = ? WHERE id = ? AND user_id = ?`, g.Name, g.Kind, g.Match, g.ID, uid)
+	res, err := s.DB.ExecContext(ctx, `UPDATE goals SET name = ?, kind = ?, match = ?, robot = ? WHERE id = ? AND user_id = ?`, g.Name, g.Kind, g.Match, g.Robot, g.ID, uid)
 	if err != nil {
 		return err
 	}

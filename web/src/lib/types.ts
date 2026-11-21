@@ -22,12 +22,12 @@ export type Settings = ConnFields & {
 
 export interface SiteOptions {
   outbound: boolean; downloads: boolean; clicks: boolean; forms: boolean; not_found: boolean; search: boolean; search_params: string[]; speed: boolean
-  hash: boolean; localhost: boolean; exclude: string[]; keep_days: number
+  hash: boolean; localhost: boolean; exclude: string[]; ignore_ips: string[]; keep_days: number
   spike: boolean; quiet: boolean; weekly: boolean
 }
 
-export interface Goal { id: number; site_id: number; name: string; kind: 'page' | 'event'; match: string; created_at: string }
-export interface Step { kind: 'page' | 'event'; match: string; label?: string }
+export interface Goal { id: number; site_id: number; name: string; kind: 'page' | 'event' | 'robot'; match: string; robot?: string; created_at: string }
+export interface Step { kind: 'page' | 'event' | 'robot'; match: string; robot?: string; label?: string }
 export interface Funnel { id: number; site_id: number; name: string; steps: Step[]; created_at: string }
 
 export interface Site {
@@ -51,7 +51,7 @@ export interface Stats { site: Site; range: Range; filters: Filter[]; totals: To
 export interface Row { value: string; country?: string; visitors: number; visits?: number; pageviews?: number; events?: number; bounce_rate?: number; duration?: number; time_on_page?: number; scroll?: number }
 
 export interface Money { currency: string; amount: number }
-export interface Conversion { goal: Goal; visitors: number; conversions: number; rate: number; revenue?: Money[] }
+export interface Conversion { goal: Goal; visitors: number; conversions: number; rate: number; revenue?: Money[]; robot?: boolean }
 
 /** One speed measure: three of four page loads stayed under p75; n loads measured. */
 export interface Metric { p75: number; n: number }
@@ -71,7 +71,7 @@ export interface Robots { rows: RobotRow[]; total: number; seen: boolean }
 
 export interface PathStep { value: string; times: number }
 export interface Paths { page: string; views: number; before: PathStep[]; after: PathStep[] }
-export interface StepCount { step: Step; visitors: number; dropped: number; rate: number; next: number }
+export interface StepCount { step: Step; visitors: number; dropped: number; rate: number; next: number; robot?: boolean }
 
 export interface LiveHit { ts: number; name: string; path: string; country: string; city: string; device: string; browser: string; source: string; visit_id: number }
 export interface Live { now: number; minutes: number[]; pages: Row[]; sources: Row[]; countries: Row[]; recent: LiveHit[] }
@@ -82,3 +82,13 @@ export interface Visit {
   country: string; region: string; city: string; device: string; browser: string; browser_version: string; os: string; os_version: string; language: string
 }
 export interface Hit { id: number; visit_id: number; ts: number; name: string; path: string; props?: Record<string, string>; engaged: number; scroll: number; revenue?: number; currency?: string; lcp?: number; inp?: number; cls?: number }
+
+// ---- how people use the site (0.5.0) ----
+export interface Landing { page: string; visits: number; visitors: number; bounce: number; engaged: number; pages: number; converted: number; rate: number }
+export interface Journey { pages: string[]; visits: number; more: number; converted: number }
+export interface SectionSeen { name: string; reached: number; rate: number }
+export interface Reading { page: string; views: number; measured: number; depth: { at: number; rate: number }[]; marked: number; sections: SectionSeen[] }
+export interface AIPage { page: string; reads: number; robots: number; visits: number }
+export interface AIView { reads: number; visits: number; pages: AIPage[]; robots: { name: string; n: number }[]; sources: { name: string; n: number }[] }
+export interface SearchRow { term: string; visitors: number; times: number; results: number | null; where?: string }
+export interface RobotAgent { agent: string; hits: number; first: number; last: number; path: string }

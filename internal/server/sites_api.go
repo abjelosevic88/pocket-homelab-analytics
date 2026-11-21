@@ -186,7 +186,7 @@ func (in siteIn) apply(site *store.Site) string {
 	}
 	if len(in.Options) > 0 && string(in.Options) != "null" {
 		o := site.Options
-		o.Exclude, o.SearchParams = nil, nil
+		o.Exclude, o.SearchParams, o.IgnoreIPs = nil, nil, nil
 		if err := json.Unmarshal(in.Options, &o); err != nil {
 			return "the options could not be read"
 		}
@@ -195,6 +195,15 @@ func (in siteIn) apply(site *store.Site) string {
 		}
 		if o.SearchParams == nil {
 			o.SearchParams = site.Options.SearchParams
+		}
+		if o.IgnoreIPs == nil {
+			o.IgnoreIPs = site.Options.IgnoreIPs
+		} else {
+			ips, msg := cleanIgnore(o.IgnoreIPs)
+			if msg != "" {
+				return msg
+			}
+			o.IgnoreIPs = ips
 		}
 		sp := []string{}
 		for _, p := range o.SearchParams {
@@ -350,23 +359,30 @@ type goalIn struct {
 	Name  string `json:"name"`
 	Kind  string `json:"kind"`
 	Match string `json:"match"`
+	Robot string `json:"robot"`
 }
 
 func (in goalIn) check() (store.Goal, string) {
 	g := store.Goal{Name: clip(strings.TrimSpace(in.Name), 80), Kind: in.Kind, Match: clip(strings.TrimSpace(in.Match), 300)}
-	if g.Kind != "page" && g.Kind != "event" {
-		return g, "a goal is a page or an event"
+	if g.Kind != "page" && g.Kind != "event" && g.Kind != "robot" {
+		return g, "a goal is a page, an event or a page read by robots"
 	}
 	if g.Match == "" {
 		return g, "say which page or event"
 	}
-	if g.Kind == "page" && !strings.HasPrefix(g.Match, "/") {
+	if g.Kind != "event" && !strings.HasPrefix(g.Match, "/") {
 		g.Match = "/" + g.Match
+	}
+	if g.Kind == "robot" {
+		g.Robot = clip(strings.TrimSpace(in.Robot), 80)
 	}
 	if g.Name == "" {
 		g.Name = g.Match
-		if g.Kind == "page" {
+		switch g.Kind {
+		case "page":
 			g.Name = "Visited " + g.Match
+		case "robot":
+			g.Name = "Robots read " + g.Match
 		}
 	}
 	return g, ""
@@ -437,13 +453,16 @@ type funnelIn struct {
 
 func (in funnelIn) check() (store.Funnel, string) {
 	f := store.Funnel{Name: clip(strings.TrimSpace(in.Name), 80), Steps: []store.Step{}}
-	for _, st := range in.Steps {
-		g, msg := goalIn{Name: st.Label, Kind: st.Kind, Match: st.Match}.check()
+	for i, st := range in.Steps {
+		g, msg := goalIn{Name: st.Label, Kind: st.Kind, Match: st.Match, Robot: st.Robot}.check()
 		if msg != "" {
 			return f, msg
 		}
+		if g.Kind == "robot" && (i == 0 || i != len(in.Steps)-1) {
+			return f, "a page read by robots can only be the last step (it is not part of anyone's visit)"
+		}
 		label := clip(strings.TrimSpace(st.Label), 80)
-		f.Steps = append(f.Steps, store.Step{Kind: g.Kind, Match: g.Match, Label: label})
+		f.Steps = append(f.Steps, store.Step{Kind: g.Kind, Match: g.Match, Robot: g.Robot, Label: label})
 	}
 	if len(f.Steps) < 2 || len(f.Steps) > 8 {
 		return f, "a funnel has 2 to 8 steps"

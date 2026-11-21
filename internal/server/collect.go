@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -63,8 +64,9 @@ type eventIn struct {
 	Hash     any             `json:"h"`
 	Engaged  int64           `json:"e"`
 	Scroll   int             `json:"sd"`
-	Vitals   *vitalsIn       `json:"v"` // engagement: how fast the page was
-	Revenue  json.RawMessage `json:"$"` // an event's money: { amount, currency }
+	Vitals   *vitalsIn       `json:"v"`   // engagement: how fast the page was
+	Revenue  json.RawMessage `json:"$"`   // an event's money: { amount, currency }
+	Sections []string        `json:"sec"` // engagement: the page's parts that were on screen (data-pocket-section)
 }
 
 // vitalsIn is how fast the page was, as the script measured it: t = the
@@ -234,6 +236,7 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 	if !s.allow(ip) {
 		return "too many"
 	}
+	addr, _ := netip.ParseAddr(strings.Trim(ip, "[]"))
 	info := ua.Parse(agent, in.Width)
 	path := page.EscapedPath()
 	if p, err := url.PathUnescape(path); err == nil {
@@ -252,6 +255,10 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 			kept = why
 			continue
 		}
+		if ignoredAddr(site.Options.IgnoreIPs, addr) {
+			kept = "ignored address"
+			continue
+		}
 		p := path
 		if site.Options.Hash && page.Fragment != "" {
 			p = path + "#" + page.Fragment
@@ -264,8 +271,12 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 			if site.Options.Speed {
 				hit.Vitals = in.Vitals.clean()
 			}
+			hit.Sections = cleanSections(in.Sections)
 		} else {
 			hit.Props = cleanProps(in.Props)
+			if name == evSearch {
+				hit.Props = cleanSearchProps(hit.Props)
+			}
 			if name != "pageview" {
 				hit.Revenue, hit.Currency = cleanRevenue(in.Revenue)
 			}
@@ -294,6 +305,89 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 		kept = "ok"
 	}
 	return kept
+}
+
+// ignoredAddr reports whether an address is one the site does not count
+// (an IP, or a range: 203.0.113.0/24, 2001:db8:1:2::/64).
+func ignoredAddr(list []string, addr netip.Addr) bool {
+	if !addr.IsValid() || len(list) == 0 {
+		return false
+	}
+	addr = addr.Unmap()
+	for _, e := range list {
+		if p, err := netip.ParsePrefix(e); err == nil {
+			if p.Contains(addr) {
+				return true
+			}
+		} else if a, err := netip.ParseAddr(e); err == nil && a.Unmap() == addr {
+			return true
+		}
+	}
+	return false
+}
+
+// CleanIgnore checks the "don't count these addresses" list: IPs or
+// ranges, as they will be matched; "" for each line that is neither.
+func cleanIgnore(in []string) ([]string, string) {
+	out := []string{}
+	for _, e := range in {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(e); err == nil {
+			e = p.Masked().String()
+		} else if a, err := netip.ParseAddr(strings.Trim(e, "[]")); err == nil {
+			e = a.Unmap().String()
+		} else {
+			return nil, "“" + clip(e, 60) + "” is not an address (203.0.113.7) or a range (203.0.113.0/24)"
+		}
+		if len(out) < 50 {
+			out = append(out, e)
+		}
+	}
+	return out, ""
+}
+
+// cleanSections keeps up to 40 section names of up to 60 characters, in order, once each.
+func cleanSections(in []string) string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, n := range in {
+		n = clip(strings.Join(strings.Fields(n), " "), 60)
+		if n == "" || seen[n] || len(out) >= 40 {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return toJSONString(out)
+}
+
+// cleanSearchProps keeps a site search the way searches are compared: the
+// words lowercased and single-spaced; results stays a whole number.
+func cleanSearchProps(props string) string {
+	if props == "" {
+		return ""
+	}
+	var m map[string]string
+	if json.Unmarshal([]byte(props), &m) != nil {
+		return props
+	}
+	if t, ok := m["term"]; ok {
+		m["term"] = clip(strings.Join(strings.Fields(strings.ToLower(t)), " "), 80)
+	}
+	if r, ok := m["results"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(r)); err == nil && n >= 0 {
+			m["results"] = strconv.Itoa(n)
+		} else {
+			delete(m, "results")
+		}
+	}
+	return toJSONString(m)
 }
 
 func toJSONString(v any) string {

@@ -8,6 +8,7 @@ import { RATING_WORD, SPEED, type SpeedKey, countryName, deviceIcon, flag, fmtNu
 import { fmtDate, fmtTime, todayISO } from '../lib/format'
 import { Confirm, Field, Loading, Modal, Segmented, copyText, errMsg, useToast } from './ui'
 import { Icon } from './icons'
+import { UnnamedRobots } from './Usage'
 
 /** Loads one of a site's lists for the range and filters in the address. */
 function useSiteData<T>(siteID: number, what: string, extra = ''): T | null {
@@ -92,6 +93,7 @@ export function Robots({ site }: { site: Site }) {
   const view = useView()
   const [tab, setTab] = useState('ai')
   const [name, setName] = useState('')
+  const [unnamed, setUnnamed] = useState(false)
   const t = ROBOT_TABS.find(x => x.id === tab) || ROBOT_TABS[0]
   const who = useSiteData<RobotsT>(site.id, 'robots', `&by=name&kind=${t.kinds}&limit=8`)
   const picked = who?.rows.some(r => r.value === name) ? name : ''
@@ -131,8 +133,10 @@ export function Robots({ site }: { site: Site }) {
               ))}
             </div>
           </div>
-          <p className="muted small sp-note">{t.about} Robots are not people: none of this is in the visitors above, and the filters above do not apply here.</p>
+          <p className="muted small sp-note">{t.about} Robots are not people: none of this is in the visitors above, and the filters above do not apply here.
+            {who.rows.some(r => r.value === 'Other robots') && <> <button type="button" className="linkish" onClick={() => setUnnamed(true)}>What the unnamed ones call themselves</button>.</>}</p>
         </>}
+      {unnamed && <UnnamedRobots site={site} onClose={() => setUnnamed(false)} />}
     </section>
   )
 }

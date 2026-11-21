@@ -102,3 +102,60 @@ func (s *Store) HasRobots(ctx context.Context, siteID int64) bool {
 	_ = s.DB.QueryRowContext(ctx, `SELECT 1 FROM robots WHERE site_id = ? LIMIT 1`, siteID).Scan(&n)
 	return n == 1
 }
+
+// RobotAgent is a robot without a name, by what it calls itself.
+type RobotAgent struct {
+	SiteID int64  `json:"-"`
+	Agent  string `json:"agent"` // "" = it sent no User-Agent
+	Hits   int    `json:"hits"`
+	First  int64  `json:"first"`
+	Last   int64  `json:"last"`
+	Path   string `json:"path"` // the last page it read
+}
+
+// AddRobotAgents adds to the unnamed robots' counts, then keeps the 500
+// most recent per site.
+func (s *Store) AddRobotAgents(ctx context.Context, list []RobotAgent) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	sites := map[int64]bool{}
+	for _, a := range list {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO robot_agents (site_id, agent, hits, first, last, path) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(site_id, agent) DO UPDATE SET hits = hits + excluded.hits, last = MAX(last, excluded.last), path = excluded.path`,
+			a.SiteID, a.Agent, a.Hits, a.Last, a.Last, a.Path); err != nil {
+			return err
+		}
+		sites[a.SiteID] = true
+	}
+	for id := range sites {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM robot_agents WHERE site_id = ? AND agent NOT IN
+			(SELECT agent FROM robot_agents WHERE site_id = ? ORDER BY last DESC LIMIT 500)`, id, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// RobotAgents lists the unnamed robots seen since a time, most hits first.
+func (s *Store) RobotAgents(ctx context.Context, siteID, since int64, limit int) ([]RobotAgent, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT agent, hits, first, last, path FROM robot_agents WHERE site_id = ? AND last >= ? ORDER BY hits DESC, last DESC LIMIT ?`, siteID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RobotAgent{}
+	for rows.Next() {
+		var a RobotAgent
+		if err := rows.Scan(&a.Agent, &a.Hits, &a.First, &a.Last, &a.Path); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

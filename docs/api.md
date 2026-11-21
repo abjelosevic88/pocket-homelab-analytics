@@ -11,13 +11,16 @@ another person's ids answer 404. Times in answers are Unix seconds.
 |---|---|
 | `GET /js/script.js` | The tracking script (also `/js/pa.js`, `/js/plausible.js`) |
 | `POST /api/event` | One hit, JSON (any content type; CORS open). Answers `202` whenever the body is well formed |
-| `POST /api/robot` | A robot's page request, from the site's own server: `{d: domain, u: page URL, ua: the robot's User-Agent}` with the site's proxy key in `X-Pocket-Proxy-Key`. Counted only when the User-Agent is a robot's; answers `202` |
+| `POST /api/robot` | A robot's page request, from the site's own server: `{d: domain, u: page URL, ua: the robot's User-Agent}` with the site's proxy key in `X-Pocket-Proxy-Key`. Counted only when the User-Agent is a robot's; answers `202`. A robot no rule names is kept with its User-Agent too |
+| `GET /api/address` | `{ip}`: the address the caller is seen on (for a site's "addresses not counted"); nothing is kept |
 
 Hit fields (Plausible's names): `n` name (`pageview`, `engagement` or an event), `u` page URL, `d` the site's domain
 (comma-separated for several sites), `r` referrer, `w` window width, `p` properties (object, or a JSON string),
 `h` 1 = pages by `#`; for `engagement` also `e` milliseconds in view since the last report, `sd` scroll depth 0–100 and
 `v` how fast the page was (`t` server answered, `f` something showed, `l` main content showed, `i` slowest press — all
-milliseconds — and `c` layout shift); for an event also `$` its money, `{amount, currency}`.
+milliseconds — and `c` layout shift) and `sec` the parts of the page that were on screen (names, page order); for an
+event also `$` its money, `{amount, currency}`. A `Search` event the site sends itself takes `term` and `results` (a
+count; `0` = found nothing) and any other props (`where`).
 
 What the script sends by itself: `Outbound Link: Click` and `File Download` (`url`), `Contact Link: Click` (`kind`
 email or phone, `to`), `Form: Submission` (`form`), `404` (`from`: the page with the link), `Click` (`text`, when on).
@@ -28,14 +31,15 @@ Script attributes: `data-domain`, `data-api` (where to send), `data-hash`, `data
 Events: `window.pocket('Name', { props: {…}, revenue: { amount: 24.5, currency: 'EUR' } })`
 (also `window.plausible`), or `data-pocket-event="Name"` + `data-pocket-prop-<key>="value"` on an element, or
 Plausible's `class="plausible-event-name=Name"`. `?pocket_ignore=1` on any page stops counting that browser.
-On the page: `data-pocket-404` on any element marks a not-found page that answers 200; on a form,
+On the page: `data-pocket-section="Pricing"` marks a part of the page (reached = a quarter of it, or half the screen,
+was in view); `data-pocket-404` on any element marks a not-found page that answers 200; on a form,
 `data-pocket-form="Name"` names it and `data-pocket-ignore` leaves it out.
 
 ## Pocket Core app links
 
 | Scope | Covers |
 |---|---|
-| `analytics:read` | `GET /summary`, `/sites`, `/sites/{id}`, `/sites/{id}/stats`, `/breakdown`, `/conversions`, `/live`, `/events`, `/speed`, `/when`, `/paths`, `/notes`, `/keywords`, `/robots`, `/sites/{id}/funnels/{fid}/counts`, `/day/{date}`, `/search` |
+| `analytics:read` | `GET /summary`, `/sites`, `/sites/{id}`, `/sites/{id}/stats`, `/breakdown`, `/conversions`, `/live`, `/events`, `/speed`, `/when`, `/paths`, `/notes`, `/keywords`, `/robots`, `/robots/unnamed`, `/landing`, `/journeys`, `/reading`, `/ai`, `/searches`, `/event-pages`, `/sites/{id}/funnels/{fid}/counts`, `/day/{date}`, `/search` |
 
 Visits one by one (`/sites/{id}/visits…`) are never open to a link. `GET /auth/me` answers for any link; everything else answers 403 to a link token.
 
@@ -56,12 +60,12 @@ Every stats call takes `range` = `today`, `yesterday`, `7d`, `30d` (default), `m
 | `GET /sites` | Your sites with `today`, `live`, `visitors_30d`, `visitors_prev_30d`, `spark` (30 days), the `snippet` to paste |
 | `POST /sites` | `{domain, name?, tz?}` — 409 when the domain is counted on this box already |
 | `GET /sites/{id}` | One site with `goals` and `funnels` |
-| `PUT /sites/{id}` | `{name, domain, tz, also[], options{outbound, downloads, clicks, forms, not_found, search, search_params[], speed, hash, localhost, exclude[], keep_days, spike, quiet, weekly}}` (any of them; only the options sent change) |
+| `PUT /sites/{id}` | `{name, domain, tz, also[], options{outbound, downloads, clicks, forms, not_found, search, search_params[], speed, hash, localhost, exclude[], ignore_ips[], keep_days, spike, quiet, weekly}}` (`ignore_ips`: IPs or ranges like `203.0.113.0/24` not counted: your own` (any of them; only the options sent change) |
 | `DELETE /sites/{id}` · `POST /sites/{id}/reset` | Delete the site · forget its visits |
 | `POST /sites/{id}/proxy-key` | A new proxy key (for a Worker in front) |
 | `GET /sites/{id}/check` | `{installed, last_hit}` |
-| `POST /sites/{id}/goals` · `PUT/DELETE /goals/{gid}` | `{name, kind: page|event, match}` |
-| `POST /sites/{id}/funnels` · `PUT/DELETE /funnels/{fid}` | `{name, steps: [{kind, match, label?}]}` (2–8 steps) |
+| `POST /sites/{id}/goals` · `PUT/DELETE /goals/{gid}` | `{name, kind: page|event|robot, match, robot?}`: `robot` = a page read by robots (`/install.sh` fetched by curl: `robot: "Scripts and tools"`; `""` = any robot), counted in times, not visitors |
+| `POST /sites/{id}/funnels` · `PUT/DELETE /funnels/{fid}` | `{name, steps: [{kind, match, robot?, label?}]}` (2–8 steps; a `robot` step only last) |
 | `GET/POST /sites/{id}/notes` · `PUT/DELETE /notes/{nid}` | What happened on a day, for the chart: `{day: YYYY-MM-DD, text}`; `GET` takes `from`/`to` |
 
 ## Numbers
@@ -76,7 +80,14 @@ Every stats call takes `range` = `today`, `yesterday`, `7d`, `30d` (default), `m
 | `GET /sites/{id}/keywords?by=query&limit=10` | The words people searched on Google (Search Console), or with `by=page` the pages Google sent them to: `state` (`ok`, `off` = no key, `no_property` = the key was not added to this site, `error`), `rows[]` of `{words, clicks, impressions, ctr, position}`, `totals`, `from`/`to`, `partial` (only `page` and `device` filters reach Google). Kept 30 minutes |
 | `GET /sites/{id}/when` | Visits by weekday and hour in the site's zone: `cells[7][24]` (0 = Sunday), `max`, `visits`, `week_start` |
 | `GET /sites/{id}/paths?page=/menu` | Where people were before a page and went next: `views`, `before[]`, `after[]` of `{value, times}` (`""` = came in here / left) |
-| `GET /sites/{id}/funnels/{fid}/counts` | Each step: `visitors`, `dropped`, `rate`, `next` |
+| `GET /sites/{id}/funnels/{fid}/counts` | Each step: `visitors`, `dropped`, `rate`, `next` (a robot step: `robot: true`, `visitors` = times read) |
+| `GET /sites/{id}/landing?goal=&limit=20` | The pages visits start on: `rows[]` of `{page, visits, visitors, bounce, engaged (s per visit), pages (per visit), converted, rate}`; `goals` = whether there are goals. A visit converted when it reached a goal (`goal` = only that one); a page goal counts only after the first page |
+| `GET /sites/{id}/journeys?steps=3&goal=&limit=15` | The first pages of visits, grouped: `rows[]` of `{pages[], visits, more (went on), converted}`, `visits` |
+| `GET /sites/{id}/reading?page=/` | How far down a page people read: `reading{page, views, measured, depth[] {at: 25|50|75|100, rate}, marked, sections[] {name, reached, rate}}` and `marked[]` (pages that report their parts). No `page`: the most viewed marked page, else `/` |
+| `GET /sites/{id}/ai?limit=15` | What AI assistants do: `reads` (by AI robots), `visits` (people sent), `pages[]` `{page, reads, robots, visits}`, `robots[]` and `sources[]` `{name, n}` |
+| `GET /sites/{id}/searches?empty=1&limit=20` | What people searched for: `rows[]` `{term, visitors, times, results (fewest; null = not sent), where}`, `nothing_found`; `empty=1` = only what found nothing |
+| `GET /sites/{id}/event-pages?event=…` | The pages an event happened on (`rows[]` like a top list) |
+| `GET /sites/{id}/robots/unnamed?limit=50` | Robots no rule names, by what they call themselves: `rows[]` `{agent, hits, first, last, path}` (the latest 500 per site are kept) |
 | `GET /sites/{id}/live` | `now` (5 min), `minutes` (30), `pages`, `sources`, `countries`, `recent` |
 | `GET /sites/{id}/visits?limit=50&offset=` · `/visits/{vid}` | Visits one by one; one visit with its hits |
 | `GET /sites/{id}/events[?event=]` | Event names seen lately (and one event's property keys) |

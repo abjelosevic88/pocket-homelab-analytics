@@ -43,7 +43,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/js/plausible.js", s.handleScript)
 	r.Post("/api/event", s.handleEvent)
 	r.Options("/api/event", s.handleEventOptions)
-	r.Post("/api/robot", s.handleRobot) // a site's own server telling about robots (robots.go)
+	r.Post("/api/robot", s.handleRobot)    // a site's own server telling about robots (robots.go)
+	r.Get("/api/address", s.handleAddress) // the address a browser is seen on (for "don't count me")
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// imports and AI can take longer than a request may
@@ -93,6 +94,13 @@ func (s *Server) Router() http.Handler {
 				r.Get("/sites/{id}/paths", s.handlePaths)
 				r.Get("/sites/{id}/keywords", s.handleKeywords)
 				r.Get("/sites/{id}/robots", s.handleRobots)
+				r.Get("/sites/{id}/robots/unnamed", s.handleRobotAgents)
+				r.Get("/sites/{id}/landing", s.handleLanding)
+				r.Get("/sites/{id}/journeys", s.handleJourneys)
+				r.Get("/sites/{id}/reading", s.handleReading)
+				r.Get("/sites/{id}/ai", s.handleAI)
+				r.Get("/sites/{id}/event-pages", s.handleEventPages)
+				r.Get("/sites/{id}/searches", s.handleSearches)
 
 				// what happened on a day, on the chart
 				r.Get("/sites/{id}/notes", s.handleListNotes)

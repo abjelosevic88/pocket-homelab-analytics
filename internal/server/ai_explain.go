@@ -118,6 +118,10 @@ func (s *Server) digest(ctx context.Context, site *store.Site, q store.Query, sp
 			for _, m := range c.Revenue {
 				money += fmt.Sprintf(", brought %.2f %s", m.Amount, m.Currency)
 			}
+			if c.Robot {
+				fmt.Fprintf(&b, "- %s: read %d times by robots (not visitors, e.g. an install script run)\n", c.Goal.Name, c.Conversions)
+				continue
+			}
 			fmt.Fprintf(&b, "- %s: %d visitors (%.1f%%), %d times%s\n", c.Goal.Name, c.Visitors, c.Rate, c.Conversions, money)
 		}
 	}

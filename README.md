@@ -58,13 +58,17 @@
 - **Where they came from**: channels (search, social, AI assistants, email, paid, other sites, direct), sources, the exact pages that linked to you, and `utm_` campaigns.
 - **What they searched on Google**: the words, how often you were shown, your place in the results and the clicks, from Google Search Console. Also the pages Google sent people to. One key file from your own Google account, pasted once (Settings → Google Search walks you through it).
 - **What they read**: top pages with time on the page and how far down people scrolled, plus the pages people came in on and left from. Filter by a page and you see **the way through it**: where people were before and where they went next.
+- **The pages people land on**: for each first page, how many left at once, how long they stayed, pages per visit and how many went on to a goal.
+- **The ways people take**: the most common first two, three or four pages of a visit, and which of them lead to a goal. Filter by a source to see the way people from Google or ChatGPT take.
+- **How far they read**: how many views got a quarter, half, three quarters of the way down a page and to the end, and, when the site marks the parts of a page (`data-pocket-section="Pricing"`), which parts people had on screen.
+- **AI assistants**: the people ChatGPT, Perplexity and others sent, next to the pages their robots read. A page read often but never visited is known but not recommended.
 - **Pages that do not exist**: the addresses people land on that your site does not have, and the page with the broken link.
 - **How fast the pages are**: how long a page takes to show, to answer a press, how much the layout jumps and how fast the server answers (Core Web Vitals, measured in the visitor's browser), by page, device, browser and country, in green, amber and red.
 - **Where they are**: countries, regions, cities and languages. Places come from an offline DB-IP database on your box, or from Cloudflare when the site runs there.
 - **What they used**: phone, tablet, laptop or desktop; browser and system.
-- **What they did**: links to other sites, file downloads, email and phone links pressed, forms sent (never what was typed), searches on your site, every button (optional), and your own events with properties (`pocket('Order placed', { props: { type: 'pickup' } })` or `data-pocket-event`). Click an event to see its details.
-- **Goals and funnels**: a page reached or an event sent counts as a goal, and shows the money it brought when the event says so (`revenue: { amount: 24.5, currency: 'EUR' }`). A funnel shows where people drop off between steps.
-- **Robots that read the site**: which AI assistants (learning, or answering someone's question), search engines and link previews (someone shared your link) read which pages. Robots never run the script, so your site's own server reports them (the Cloudflare Worker from Install does). They are never counted as visitors.
+- **What they did**: links to other sites, file downloads, email and phone links pressed, forms sent (never what was typed), searches on your site (and the ones that found nothing, when the site says how many results there were), every button (optional), and your own events with properties (`pocket('Order placed', { props: { type: 'pickup' } })` or `data-pocket-event`). Click an event to see its details and the pages it happened on.
+- **Goals and funnels**: a page reached, an event sent or a page read by a robot (your install script fetched by `curl`: an install run) counts as a goal, and shows the money it brought when the event says so (`revenue: { amount: 24.5, currency: 'EUR' }`). A funnel shows where people drop off between steps.
+- **Robots that read the site**: which AI assistants (learning, or answering someone's question), search engines and link previews (someone shared your link) read which pages. Robots never run the script, so your site's own server reports them (the Cloudflare Worker from Install does). They are never counted as visitors. The ones no rule knows are listed by what they call themselves.
 - **When they come**: a week of hours, darker where more people visit.
 - **Notes on the chart**: mark the day a newsletter went out or a design changed, so a rise or a drop explains itself later.
 - **Campaign links**: a small builder for links that say where a visit came from (a newsletter, a QR code, an ad).
@@ -72,7 +76,7 @@
 - **Visits one by one** and **right now**: the pages of each visit in order, and the people on the site this minute.
 - **Pocket AI explains** a period in plain words, and you can keep that as a note or a task.
 - **Messages**: a weekly report (also by email through Pocket Mail), a note when far more people come than usual, and one when a site that usually has visitors goes quiet for a day.
-- **Private by design**: no cookies, and nothing stored that identifies a person. Robots are left out. A link stops counting your own browser.
+- **Private by design**: no cookies, and nothing stored that identifies a person. Robots are left out. Your own visits stay out too: list your addresses (Add the address I am on now), or use the link that stops counting one browser.
 - **Plausible-compatible**: the same event endpoint and fields, so Plausible's script works too; `window.plausible()` and `plausible-event-name=` classes work in Pocket's script.
 
 ## Run it
