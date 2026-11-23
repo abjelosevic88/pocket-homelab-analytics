@@ -64,6 +64,7 @@ Every stats call takes `range` = `today`, `yesterday`, `7d`, `30d` (default), `m
 | `DELETE /sites/{id}` · `POST /sites/{id}/reset` | Delete the site · forget its visits |
 | `POST /sites/{id}/proxy-key` | A new proxy key (for a Worker in front) |
 | `GET /sites/{id}/check` | `{installed, last_hit}` |
+| `GET /sites/{id}/icon` | the site's own icon (from its `<link rel="icon">`, else `/favicon.ico`; kept a week), 404 when it has none |
 | `POST /sites/{id}/goals` · `PUT/DELETE /goals/{gid}` | `{name, kind: page|event|robot, match, robot?}`: `robot` = a page read by robots (`/install.sh` fetched by curl: `robot: "Scripts and tools"`; `""` = any robot), counted in times, not visitors |
 | `POST /sites/{id}/funnels` · `PUT/DELETE /funnels/{fid}` | `{name, steps: [{kind, match, robot?, label?}]}` (2–8 steps; a `robot` step only last) |
 | `GET/POST /sites/{id}/notes` · `PUT/DELETE /notes/{nid}` | What happened on a day, for the chart: `{day: YYYY-MM-DD, text}`; `GET` takes `from`/`to` |

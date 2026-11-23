@@ -210,6 +210,10 @@ a.list-row:hover, .list-row:has(> a.row-main:hover) { background: var(--hover); 
 .sb-list:hover, button.sb-row.sb-empty:hover { background: var(--hover); color: var(--text); }
 .sb-list-ico { color: var(--muted); flex-shrink: 0; }
 .sb-list.active .sb-list-ico { color: var(--accent-ink); }
+.sb-list-ico { display: inline-flex; }
+.site-ico { border-radius: 3px; object-fit: contain; flex: none; display: block; }
+.dash-title h1 { display: flex; align-items: center; gap: 10px; }
+.dash-ico { border-radius: 5px; color: var(--muted); }
 /* cards and grids never wider than the screen */
 .card, .two-col > *, .three-col > *, .two-grid > *, .tiles > * { min-width: 0; }
 .card-body.flush { overflow-x: auto; }

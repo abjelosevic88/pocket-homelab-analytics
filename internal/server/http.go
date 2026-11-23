@@ -80,6 +80,7 @@ func (s *Server) Router() http.Handler {
 				r.Post("/sites/{id}/reset", s.handleResetSite)
 				r.Post("/sites/{id}/proxy-key", s.handleNewProxyKey)
 				r.Get("/sites/{id}/check", s.handleCheckSite)
+				r.Get("/sites/{id}/icon", s.handleSiteIcon)
 
 				// the numbers
 				r.Get("/sites/{id}/stats", s.handleStats)

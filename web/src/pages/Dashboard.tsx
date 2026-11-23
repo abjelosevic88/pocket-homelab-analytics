@@ -7,7 +7,7 @@ import { useApp } from '../lib/app-context'
 import { useData } from '../lib/data'
 import type { Conversion, Funnel, Row, Site, StepCount, Stats } from '../lib/types'
 import { DID_DIMS, DIM_LABEL, FILTERABLE, RANGES, countryName, delta, deviceIcon, eventLabel, flag, fmtDur, fmtMoney, fmtNum, fmtPct, useView, valueLabel } from '../lib/analytics'
-import { Empty, Loading, Modal, type MenuItem, MenuButton, Segmented, errMsg, useToast } from '../components/ui'
+import { Empty, Loading, SiteIcon, Modal, type MenuItem, MenuButton, Segmented, errMsg, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { MainChart } from '../components/MainChart'
 import { useCrumb } from '../components/Layout'
@@ -65,7 +65,7 @@ export default function Dashboard() {
     <div className="dash">
       <div className="dash-head">
         <div className="dash-title">
-          <h1>{site.label}</h1>
+          <h1><SiteIcon site={site} size={22} className="dash-ico" />{site.label}</h1>
           <Link to={`/sites/${site.id}/live`} className="live-pill" title="People on the site in the last 5 minutes"><span className="live-dot" />{stats.live} now</Link>
         </div>
         <div className="dash-tools">

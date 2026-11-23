@@ -425,3 +425,11 @@ export function download(url: string) {
 }
 
 export function errMsg(e: unknown): string { return (e as Error)?.message || String(e) }
+
+/** A website's own icon (the box fetches and keeps it); a globe when it has none. */
+export function SiteIcon({ site, size = 14, className = '' }: { site: { id: number; domain: string }; size?: number; className?: string }) {
+  const [bad, setBad] = useState(false)
+  useEffect(() => { setBad(false) }, [site.id, site.domain])
+  if (bad) return <Icon name="globe" size={size} className={className} />
+  return <img className={`site-ico ${className}`} src={`/api/v1/sites/${site.id}/icon?d=${encodeURIComponent(site.domain)}`} alt="" width={size} height={size} loading="lazy" onError={() => setBad(true)} />
+}

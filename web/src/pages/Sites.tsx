@@ -5,6 +5,7 @@ import { useData } from '../lib/data'
 import { delta, fmtNum } from '../lib/analytics'
 import { Sparkline } from '../components/Chart'
 import { Icon } from '../components/icons'
+import { SiteIcon } from '../components/ui'
 import { openCreate } from '../components/Layout'
 
 export default function Sites() {
@@ -32,7 +33,7 @@ export default function Sites() {
           return (
             <Link key={s.id} to={`/sites/${s.id}`} className="site-card">
               <div className="sc-head">
-                <img className="sc-fav" src={`https://${s.domain}/favicon.ico`} alt="" width={18} height={18} loading="lazy" referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }} />
+                <SiteIcon site={s} size={18} className="sc-fav" />
                 <span className="sc-name ellipsis">{s.label}</span>
                 {!!s.live && <span className="live-pill sm"><span className="live-dot" />{s.live}</span>}
               </div>

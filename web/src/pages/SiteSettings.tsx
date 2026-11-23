@@ -188,6 +188,9 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
         <a className="btn sm ghost" href={site.ignore_url} target="_blank" rel="noreferrer"><Icon name="eye-off" size={14} />Do not count this browser</a>
       </div>
       <p className="muted small mt">“Do not count this browser” opens your site once and remembers it in that browser only: do it on each phone and computer you use, also when you are away from home.</p>
+      <Field label="The link that stops counting a browser" help="Send it to your phone or another computer and open it there once. Opening it with =0 at the end counts that browser again." className="mt" group>
+        <CopyField value={site.ignore_url} label="The link that stops counting a browser" />
+      </Field>
     </Section>
     <Section title="What people press">
       <SettingRow title="Links to other sites" help="Which links people follow away from your site, and which email addresses and phone numbers they press."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>

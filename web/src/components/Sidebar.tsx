@@ -4,6 +4,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useApp } from '../lib/app-context'
 import { useData } from '../lib/data'
 import { Icon } from './icons'
+import { SiteIcon } from './ui'
 import type { CreateKind } from './Layout'
 
 export function Sidebar({ onCreate, onNavigate }: { onCreate: (k: CreateKind) => void; onNavigate: () => void }) {
@@ -38,7 +39,7 @@ export function Sidebar({ onCreate, onNavigate }: { onCreate: (k: CreateKind) =>
           return (
             <div key={s.id} className="sb-site">
               <Link to={`/sites/${s.id}${on ? q : ''}`} className={`sb-row sb-list ${on && loc.pathname === `/sites/${s.id}` ? 'active' : ''}`} onClick={onNavigate} title={s.domain}>
-                <span className="sb-list-ico" aria-hidden="true"><Icon name="globe" size={14} /></span>
+                <span className="sb-list-ico" aria-hidden="true"><SiteIcon site={s} size={16} /></span>
                 <span className="grow ellipsis">{s.label}</span>
                 {s.live ? <span className="sb-live" title={`${s.live} on the site now`}><span className="live-dot sm" />{s.live}</span> : !s.installed ? <Icon name="hourglass" size={12} className="muted" /> : null}
               </Link>
