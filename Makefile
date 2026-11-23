@@ -22,6 +22,7 @@ dev:                       ## backend on :8080 + vite dev server on :5173 with h
 test:                      ## run Go tests and type-check the UI
 	go vet ./... && go test ./...
 	cd web && npx tsc --noEmit
+	node internal/server/tracker/clock_test.mjs
 
 lint:
 	gofmt -l . && go vet ./...

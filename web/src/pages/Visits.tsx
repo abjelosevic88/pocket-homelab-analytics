@@ -62,6 +62,144 @@ export default function Visits() {
   )
 }
 
+// ---- one visit as a story: the pages are the steps, and what the person
+// did on a page sits under it ----
+
+interface Act { hit: Hit; out?: string }
+interface Step { n: number; page?: Hit; times: number; acts: Act[] }
+interface Story { steps: Step[]; pages: number; done: number; reading: number; longest: number; left: string }
+
+const OUT = 'Outbound Link: Click'
+
+function tell(hits: Hit[]): Story {
+  const steps: Step[] = []
+  const seen: Record<string, number> = {}
+  let cur: Step | undefined
+  let left = ''
+  hits.forEach((h, i) => {
+    if (h.name === 'pageview') {
+      seen[h.path] = (seen[h.path] || 0) + 1
+      cur = { n: Object.values(seen).reduce((a, b) => a + b, 0), page: h, times: seen[h.path], acts: [] }
+      steps.push(cur)
+      return
+    }
+    if (!cur) { cur = { n: 0, times: 0, acts: [] }; steps.push(cur) }
+    const last = i === hits.length - 1
+    if (h.name === OUT) {
+      const url = h.props?.url || ''
+      // a named press and the link it followed are one thing: "Open on GitHub", then out
+      const prev = cur.acts[cur.acts.length - 1]
+      const same = prev && prev.hit.name !== OUT && !prev.out && Math.abs(h.ts - prev.hit.ts) <= 1
+      if (last) left = url
+      if (same) { if (!last) prev.out = url; return }
+      if (last && url) return
+    }
+    cur.acts.push({ hit: h })
+  })
+  const views = steps.filter(x => x.page)
+  return {
+    steps, pages: views.length, left,
+    done: steps.reduce((a, x) => a + x.acts.filter(y => y.hit.name !== '404').length, 0),
+    reading: views.reduce((a, x) => a + (x.page!.engaged || 0), 0) / 1000,
+    longest: Math.max(0, ...views.map(x => x.page!.engaged || 0)),
+  }
+}
+
+/** 0:45 since the visit began (1:02:07 after an hour). */
+function clock(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  const m = Math.floor(s / 60) % 60, h = Math.floor(s / 3600)
+  return `${h ? `${h}:${String(m).padStart(2, '0')}` : m}:${String(s % 60).padStart(2, '0')}`
+}
+
+const short = (url: string) => url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')
+const hostOf = (url: string) => short(url).split('/')[0]
+const TIMES = ['', '', 'second time', 'third time']
+const ACT_ICON: Record<string, string> = { [OUT]: 'external', 'File Download': 'download', 'Contact Link: Click': 'mail', 'Form: Submission': 'send', Search: 'search', '404': 'alert', Click: 'hand' }
+// the detail that says what it was, by event; for a site's own events, the first one
+const ACT_MAIN: Record<string, string> = { [OUT]: 'url', 'File Download': 'url', 'Contact Link: Click': 'to', 'Form: Submission': 'form', Search: 'term', '404': 'from', Click: 'text' }
+// details that say where on the page: the word is enough
+const PLACE = new Set(['where', 'place', 'position', 'placement', 'location', 'section'])
+
+function ActChip({ act, started }: { act: Act; started: number }) {
+  const h = act.hit
+  const props = Object.entries(h.props || {}).filter(([, v]) => v !== '')
+  const mainKey = ACT_MAIN[h.name] || props.find(([k]) => !PLACE.has(k))?.[0]
+  const main = props.find(([k]) => k === mainKey)?.[1]
+  const rest = props.filter(([k]) => k !== mainKey && !(h.name === 'Contact Link: Click' && k === 'kind'))
+  const shown = !main ? '' : mainKey === 'url' ? (h.name === 'File Download' ? main.split('/').pop() || short(main) : short(main)) : h.name === 'Search' || h.name === 'Click' ? `“${main}”` : main
+  return (
+    <li className="st-act">
+      <Icon name={h.name === 'Contact Link: Click' && h.props?.kind === 'phone' ? 'phone' : ACT_ICON[h.name] || 'zap'} size={14} />
+      <span className="st-act-what"><b>{eventLabel(h.name)}</b>{shown && <span title={mainKey === 'url' ? main : undefined}> · {shown}</span>}</span>
+      {h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}
+      {rest.map(([k, v]) => <span key={k} className="st-act-more">{PLACE.has(k) ? v : `${k}: ${v}`}</span>)}
+      {act.out && <span className="st-act-more" title={act.out}>↗ {hostOf(act.out)}</span>}
+      <span className="st-act-more tnum">{clock(h.ts - started)}</span>
+    </li>
+  )
+}
+
+function VisitStory({ visit, hits }: { visit: Visit; hits: Hit[] }) {
+  const story = tell(hits)
+  const strip = story.pages > 1 && story.reading > 0
+  const jump = (id: number) => {
+    const el = document.getElementById(`st-${id}`)
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    el.classList.remove('st-flash'); void el.offsetWidth; el.classList.add('st-flash')
+  }
+  return <>
+    <p className="st-sum">
+      <span><b>{story.pages}</b> {story.pages === 1 ? 'page' : 'pages'}</span>
+      {story.done > 0 && <span><b>{story.done}</b> {story.done === 1 ? 'thing done' : 'things done'}</span>}
+      {story.reading >= 1 && <span><b>{fmtDur(story.reading)}</b> reading</span>}
+      {story.left && <span>Left for <b>{hostOf(story.left)}</b></span>}
+    </p>
+    {strip && <>
+      <div className={`st-strip ${story.pages > 14 ? 'many' : ''}`}>
+        {story.steps.filter(x => x.page).map(x => (
+          <button key={x.page!.id} type="button" style={{ flexGrow: Math.max(1, Math.round((x.page!.engaged || 0) / 1000)) }} title={`${x.page!.path} · ${fmtDur((x.page!.engaged || 0) / 1000)}`} onClick={() => jump(x.page!.id)}>{x.n}</button>
+        ))}
+        {story.left && <span className="st-strip-out" title={`Left for ${short(story.left)}`}><Icon name="external" size={12} /></span>}
+      </div>
+      <p className="st-strip-note muted">Each block is a page, as wide as the time spent on it.</p>
+    </>}
+    <ol className="story">
+      {story.steps.map((x, i) => {
+        const p = x.page
+        const stats = p && (p.engaged >= 1000 || p.scroll > 0 || !!p.lcp)
+        return (
+          <li key={p ? p.id : `a${i}`} id={p ? `st-${p.id}` : undefined}>
+            <span className={`st-num tnum ${p ? '' : 'plain'}`} aria-hidden="true">{p ? x.n : <Icon name="zap" size={13} />}</span>
+            <div className="st-body">
+              {p && <div className="st-head">
+                <b className="st-path">{p.path}</b>
+                {x.n === 1 && <span className="badge">came in</span>}
+                {x.times > 1 && <span className="badge">{TIMES[x.times] || 'again'}</span>}
+                <span className="st-at muted small tnum" title={fmtDateTime(new Date(p.ts * 1000).toISOString())}>{clock(p.ts - visit.started)}</span>
+              </div>}
+              {stats && <div className="st-stats">
+                <span className="st-stat">{p.engaged >= 1000 && <><b className="tnum">{fmtDur(p.engaged / 1000)}</b><span className="st-bar"><i style={{ width: `${Math.max(3, Math.round(p.engaged / (story.longest || 1) * 100))}%` }} /></span></>}</span>
+                <span className="st-stat">{p.scroll > 0 && <>read <b className="tnum">{p.scroll}%</b><span className="st-bar read"><i style={{ width: `${p.scroll}%` }} /></span></>}</span>
+                <span className={`st-stat ${p.lcp ? `sp-${rate('lcp', p.lcp)}` : ''}`} title={p.lcp ? 'How long until the main part of the page was on the screen' : undefined}>{p.lcp ? <><i className="sp-dot" aria-hidden="true" />showed in <b className="tnum">{fmtSpeed('lcp', p.lcp)}</b></> : null}</span>
+              </div>}
+              {x.acts.length > 0 && <ul className="st-acts">{x.acts.map(a => <ActChip key={a.hit.id} act={a} started={visit.started} />)}</ul>}
+            </div>
+          </li>
+        )
+      })}
+      {story.left && <li>
+        <span className="st-num plain" aria-hidden="true"><Icon name="external" size={13} /></span>
+        <div className="st-body"><div className="st-head">
+          <span className="st-left">Left for <a href={story.left} target="_blank" rel="noreferrer noopener">{short(story.left)}</a></span>
+          <span className="st-at muted small tnum">{clock(hits[hits.length - 1].ts - visit.started)}</span>
+        </div></div>
+      </li>}
+    </ol>
+  </>
+}
+
 function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: number; onClose: () => void }) {
   const [data, setData] = useState<{ visit: Visit; hits: Hit[] } | null>(null)
   const [err, setErr] = useState(false)
@@ -71,25 +209,12 @@ function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: num
     <Modal title="One visit" onClose={onClose} size="lg">
       {err ? <Empty title="This visit is gone" icon="alert" /> : !v || !data ? <Loading /> : <>
         <dl className="visit-facts">
-          <div><dt>When</dt><dd>{fmtDateTime(new Date(v.started * 1000).toISOString())} · {fmtDur(v.last - v.started)}</dd></div>
+          <div><dt>When</dt><dd>{fmtDateTime(new Date(v.started * 1000).toISOString())}{v.last - v.started >= 1 ? ` · ${fmtDur(v.last - v.started)}` : ''}</dd></div>
           <div><dt>Came from</dt><dd>{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · campaign “${v.utm_campaign}”` : ''}</dd></div>
           <div><dt>Where</dt><dd><span className="flag">{flag(v.country)}</span>{[v.city, v.region, countryName(v.country)].filter(Boolean).join(', ')}</dd></div>
           <div><dt>With</dt><dd>{v.device} · {v.browser} {v.browser_version} · {v.os} {v.os_version}{v.language ? ` · ${languageName(v.language)}` : ''}</dd></div>
         </dl>
-        <ol className="journey">
-          {data.hits.map((h, i) => (
-            <li key={h.id} className={h.name === 'pageview' ? 'jp' : 'je'}>
-              <span className="j-at muted small tnum">+{fmtDur(h.ts - v.started)}</span>
-              <span className="j-ico"><Icon name={h.name === 'pageview' ? 'file' : 'zap'} size={13} /></span>
-              <span className="j-what">
-                {h.name === 'pageview' ? <b>{h.path}</b> : <><b>{eventLabel(h.name)}</b>{h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}{h.props && <span className="muted small"> {Object.entries(h.props).map(([k, val]) => `${k}: ${val || '—'}`).join(' · ')}</span>}</>}
-                {h.name === 'pageview' && (h.engaged > 0 || h.scroll > 0) && <span className="muted small"> · {fmtDur(h.engaged / 1000)} on the page{h.scroll ? `, read ${h.scroll}% down` : ''}</span>}
-                {h.name === 'pageview' && h.lcp ? <span className={`small sp-inline sp-${rate('lcp', h.lcp)}`} title="How long until the main part of the page was on the screen"> · <i className="sp-dot" aria-hidden="true" />showed in {fmtSpeed('lcp', h.lcp)}</span> : null}
-                {i === 0 && <span className="badge">came in</span>}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <VisitStory visit={v} hits={data.hits} />
         <p className="muted small">Nothing here tells who this was: no IP address, no cookie. The same person tomorrow is a new visitor.</p>
       </>}
     </Modal>

@@ -140,11 +140,16 @@
     send('engagement', { u: page, e: t, sd: maxScroll, v: page === loaded && speed && PO ? vit : null, sec: secCount > secSent ? sectionsSeen() : null })
     shown = 0; since = d.visibilityState === 'visible' ? now() : 0; sentScroll = maxScroll; secSent = secCount
   }
+  // the clock runs only while the page is in front: leaving it (another tab,
+  // another page) stops it, also when the browser keeps the page for Back
+  function away() { report(); if (since) { shown += now() - since; since = 0 } }
+  function back() { if (!since && d.visibilityState === 'visible') since = now() }
   d.addEventListener('visibilitychange', function () {
-    if (d.visibilityState === 'hidden') { report(); hid = true }
-    else if (!since) since = now()
+    if (d.visibilityState === 'hidden') { away(); hid = true }
+    else back()
   })
-  w.addEventListener('pagehide', report)
+  w.addEventListener('pagehide', away)
+  w.addEventListener('pageshow', function (e) { if (e.persisted) back() })
   w.addEventListener('scroll', function () { w.requestAnimationFrame ? w.requestAnimationFrame(onScroll) : onScroll() }, { passive: true })
 
   // ---- pages ----
