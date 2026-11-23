@@ -66,8 +66,8 @@ export default function Visits() {
 // did on a page sits under it ----
 
 interface Act { hit: Hit; out?: string; pressed?: boolean; led?: string }
-interface Step { n: number; page?: Hit; times: number; acts: Act[] }
-interface Story { steps: Step[]; pages: number; reading: number; left: string }
+interface Step { n: number; page?: Hit; times: number; acts: Act[]; via?: Act }
+interface Story { steps: Step[]; longest: number; left: string; leftVia?: Act }
 
 const OUT = 'Outbound Link: Click'
 
@@ -76,15 +76,17 @@ function tell(hits: Hit[]): Story {
   const seen: Record<string, number> = {}
   let cur: Step | undefined
   let left = ''
+  let leftVia: Act | undefined
   hits.forEach((h, i) => {
     // a site's own event right before a new page, a link out, a file or an email
     // link was the press that did it: "Menu", then /docs
     const prev = cur?.acts[cur.acts.length - 1]
     const mine = prev && !(prev.hit.name in ACT_ICON) ? prev : undefined
     if (h.name === 'pageview') {
-      if (mine && h.ts - mine.hit.ts <= 2) { mine.pressed = true; mine.led = h.path }
+      const via = mine && h.ts - mine.hit.ts <= 2 ? mine : undefined
+      if (via) { via.pressed = true; via.led = h.path; cur!.acts.pop() }
       seen[h.path] = (seen[h.path] || 0) + 1
-      cur = { n: Object.values(seen).reduce((a, b) => a + b, 0), page: h, times: seen[h.path], acts: [] }
+      cur = { n: Object.values(seen).reduce((a, b) => a + b, 0), page: h, times: seen[h.path], acts: [], via }
       steps.push(cur)
       return
     }
@@ -95,17 +97,13 @@ function tell(hits: Hit[]): Story {
       // a named press and the link it followed are one thing: "Open on GitHub", then out
       const same = prev && prev.hit.name !== OUT && !prev.out && Math.abs(h.ts - prev.hit.ts) <= 1
       if (last) left = url
-      if (same) { prev.pressed = true; if (!last) prev.out = url; return }
+      if (same) { prev.pressed = true; if (last) { leftVia = prev; cur.acts.pop() } else prev.out = url; return }
       if (last && url) return
     }
     if (mine && h.name in ACT_ICON && h.name !== '404' && h.name !== 'Search' && Math.abs(h.ts - mine.hit.ts) <= 1) mine.pressed = true
     cur.acts.push({ hit: h })
   })
-  const views = steps.filter(x => x.page)
-  return {
-    steps, pages: views.length, left,
-    reading: views.reduce((a, x) => a + (x.page!.engaged || 0), 0) / 1000,
-  }
+  return { steps, left, leftVia, longest: Math.max(0, ...steps.map(x => x.page?.engaged || 0)) }
 }
 
 /** 0:45 since the visit began (1:02:07 after an hour). */
@@ -123,8 +121,8 @@ const ACT_MAIN: Record<string, string> = { [OUT]: 'url', 'File Download': 'url',
 // details that say where on the page: the word is enough
 const PLACE = new Set(['where', 'place', 'position', 'placement', 'location', 'section'])
 
-/** One thing done on a page, in a few words; the rest is in the tip. */
-function ActLine({ act, started }: { act: Act; started: number }) {
+/** What an act was, in a few words, and the rest of it for a tip. */
+function actWords(act: Act, started: number) {
   const h = act.hit
   const own = !(h.name in ACT_ICON) // an event the site itself names: "Menu", "Order placed"
   const props = Object.entries(h.props || {}).filter(([, v]) => v !== '')
@@ -132,67 +130,61 @@ function ActLine({ act, started }: { act: Act; started: number }) {
   const main = props.find(([k]) => k === mainKey)?.[1]
   const rest = props.filter(([k]) => k !== mainKey && !(h.name === 'Contact Link: Click' && k === 'kind'))
   const shown = !main ? '' : mainKey === 'url' ? (h.name === 'File Download' ? main.split('/').pop() || short(main) : short(main)) : h.name === 'Search' || h.name === 'Click' ? `“${main}”` : main
-  const icon = own ? (act.pressed ? 'hand' : 'check-circle') : h.name === 'Contact Link: Click' && h.props?.kind === 'phone' ? 'phone' : ACT_ICON[h.name]
   const tip = [
     `${clock(h.ts - started)} into the visit`,
+    main && mainKey !== 'url' ? `${mainKey}: ${main}` : main || '',
     ...rest.map(([k, v]) => `${k}: ${v}`),
-    mainKey === 'url' && main ? main : '',
-    act.out ? `went to ${short(act.out)}` : act.led ? `opened ${act.led}` : '',
+    act.out ? `went to ${short(act.out)}` : '',
     own ? `“${h.name}” is the name your site gives it` : '',
   ].filter(Boolean).join(' · ')
-  return (
-    <li title={tip}>
-      <Icon name={icon} size={14} />
-      <span className="st-act-what">{eventLabel(h.name)}{shown && <>{own && act.pressed ? ' › ' : ' · '}{shown}</>}</span>
-      {h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}
-    </li>
-  )
+  const icon = own ? 'check-circle' : h.name === 'Contact Link: Click' && h.props?.kind === 'phone' ? 'phone' : ACT_ICON[h.name]
+  return { label: eventLabel(h.name), shown, tip, icon }
 }
 
+/** The link or button that brought them to the next page: "via Menu". */
+function Via({ act, started }: { act?: Act; started: number }) {
+  if (!act) return null
+  const w = actWords(act, started)
+  return <span className="vt-via" title={w.tip}>via {w.label}</span>
+}
+
+/** One visit as a table like the ones on the site page: a line per page, in
+ * the order they were opened, with a bar for the time spent on it. */
 function VisitStory({ visit, hits }: { visit: Visit; hits: Hit[] }) {
   const story = tell(hits)
-  const strip = story.pages > 1 && story.reading > 0
-  const jump = (id: number) => {
-    const el = document.getElementById(`st-${id}`)
-    if (!el) return
-    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    el.classList.remove('st-flash'); void el.offsetWidth; el.classList.add('st-flash')
-  }
-  return <>
-    {strip && <div className={`st-strip ${story.pages > 14 ? 'many' : ''}`}>
-      {story.steps.filter(x => x.page).map(x => (
-        <button key={x.page!.id} type="button" style={{ flexGrow: Math.max(1, Math.round((x.page!.engaged || 0) / 1000)) }} title={`${x.page!.path} · ${fmtDur((x.page!.engaged || 0) / 1000)}`} onClick={() => jump(x.page!.id)}>{x.n}</button>
-      ))}
-    </div>}
-    <ol className="story">
+  return (
+    <div className="rows wide vt">
+      <div className="rows-h"><span>Pages, in order</span><span className="num">Time</span><span className="num vt-read">Read</span></div>
       {story.steps.map((x, i) => {
         const p = x.page
         const slow = p?.lcp ? rate('lcp', p.lcp) : 'good'
         return (
-          <li key={p ? p.id : `a${i}`} id={p ? `st-${p.id}` : undefined}>
-            <span className={`st-num tnum ${p ? '' : 'plain'}`} aria-hidden="true">{p ? x.n : <Icon name="zap" size={13} />}</span>
-            <div className="st-body">
-              {p && <div className="st-head" title={`${clock(p.ts - visit.started)} into the visit${p.lcp ? ` · showed in ${fmtSpeed('lcp', p.lcp)}` : ''}`}>
-                <b className="st-path">{p.path}</b>
-                {x.times > 1 && <span className="muted small">again</span>}
-                <span className="st-meta muted tnum">
-                  {[p.engaged >= 1000 ? fmtDur(p.engaged / 1000) : '', p.scroll > 0 ? `read ${p.scroll}%` : ''].filter(Boolean).join(' · ')}
-                  {slow !== 'good' && <span className={`st-slow sp-${slow}`}><i className="sp-dot" aria-hidden="true" />slow to show</span>}
-                </span>
-              </div>}
-              {x.acts.length > 0 && <ul className="st-acts">{x.acts.map(a => <ActLine key={a.hit.id} act={a} started={visit.started} />)}</ul>}
-            </div>
-          </li>
+          <div key={p ? p.id : `a${i}`} className="vt-step">
+            {p && <div className="rrow static" title={`${clock(p.ts - visit.started)} into the visit${p.lcp ? ` · showed in ${fmtSpeed('lcp', p.lcp)}` : ''}`}>
+              <span className="rbar" style={{ width: `${p.engaged > 0 && story.longest ? Math.max(1, p.engaged / story.longest * 100) : 0}%` }} />
+              <span className="rlabel grow">
+                <b className="ellipsis">{p.path}</b>
+                {x.times > 1 && <span className="vt-via">again</span>}
+                <Via act={x.via} started={visit.started} />
+                {slow !== 'good' && <span className={`vt-via sp-${slow}`}><i className="sp-dot" aria-hidden="true" />slow to show</span>}
+              </span>
+              <span className="num tnum">{p.engaged >= 1000 ? fmtDur(p.engaged / 1000) : <span className="muted">–</span>}</span>
+              <span className="num tnum vt-read">{p.scroll > 0 ? `${p.scroll}%` : <span className="muted">–</span>}</span>
+            </div>}
+            {x.acts.length > 0 && <div className="vt-acts">
+              {x.acts.map(a => {
+                const w = actWords(a, visit.started)
+                return <span key={a.hit.id} title={w.tip}><Icon name={w.icon} size={13} />{w.label}{w.shown ? ` · ${w.shown}` : ''}{a.hit.revenue ? <span className="badge ok-badge">{fmtMoney(a.hit.revenue, a.hit.currency)}</span> : null}</span>
+              })}
+            </div>}
+          </div>
         )
       })}
-      {story.left && <li>
-        <span className="st-num plain" aria-hidden="true"><Icon name="external" size={13} /></span>
-        <div className="st-body"><div className="st-head">
-          <span className="st-left">Left for <a href={story.left} target="_blank" rel="noreferrer noopener">{short(story.left)}</a></span>
-        </div></div>
-      </li>}
-    </ol>
-  </>
+      {story.left && <div className="rrow static vt-left">
+        <span className="rlabel grow"><Icon name="external" size={14} className="muted" /><span className="ellipsis">Left for <a href={story.left} target="_blank" rel="noreferrer noopener">{short(story.left)}</a></span><Via act={story.leftVia} started={visit.started} /></span>
+      </div>}
+    </div>
+  )
 }
 
 function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: number; onClose: () => void }) {
@@ -203,12 +195,13 @@ function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: num
   return (
     <Modal title="One visit" onClose={onClose} size="lg">
       {err ? <Empty title="This visit is gone" icon="alert" /> : !v || !data ? <Loading /> : <>
-        <dl className="visit-facts">
-          <div><dt>When</dt><dd>{fmtDateTime(new Date(v.started * 1000).toISOString())}{v.last - v.started >= 1 ? ` · ${fmtDur(v.last - v.started)}` : ''}</dd></div>
-          <div><dt>Came from</dt><dd>{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · campaign “${v.utm_campaign}”` : ''}</dd></div>
-          <div><dt>Where</dt><dd><span className="flag">{flag(v.country)}</span>{[v.city, v.region, countryName(v.country)].filter(Boolean).join(', ')}</dd></div>
-          <div><dt>With</dt><dd>{v.device} · {v.browser} {v.browser_version} · {v.os} {v.os_version}{v.language ? ` · ${languageName(v.language)}` : ''}</dd></div>
-        </dl>
+        <p className="vt-when">{fmtDateTime(new Date(v.started * 1000).toISOString())}{v.last - v.started >= 1 ? <span className="muted"> · {fmtDur(v.last - v.started)}</span> : null}</p>
+        <div className="vt-who">
+          <span title={[v.city, v.region, countryName(v.country)].filter(Boolean).join(', ')}><span className="flag">{flag(v.country)}</span>{[v.city, countryName(v.country)].filter(Boolean).join(', ')}</span>
+          <span title={v.device}><Icon name={deviceIcon(v.device)} size={13} />{v.browser} {v.browser_version} · {v.os} {v.os_version}</span>
+          {v.language && <span title="The language of their browser"><Icon name="globe" size={13} />{languageName(v.language)}</span>}
+          <span title="Where they came from"><Icon name="link" size={13} />{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · “${v.utm_campaign}”` : ''}</span>
+        </div>
         <VisitStory visit={v} hits={data.hits} />
         <p className="muted small">Nothing here tells who this was: no IP address, no cookie. The same person tomorrow is a new visitor.</p>
       </>}

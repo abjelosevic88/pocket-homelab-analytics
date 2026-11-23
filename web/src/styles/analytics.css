@@ -509,35 +509,25 @@ b.ellipsis, span.ellipsis { display: block; }
 .visit-row + .visit-row { border-top: 1px solid var(--hairline); }
 .vr-meta { display: flex; align-items: center; gap: 4px; }
 .vr-dur { text-align: right; }
-.visit-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0 0 16px; }
-.visit-facts dt { font-size: 12px; color: var(--muted); }
-.visit-facts dd { margin: 2px 0 0; display: flex; align-items: center; flex-wrap: wrap; }
-/* one visit as a story: numbered pages down a line, one line each; what was done on a page under it */
-.st-strip { display: flex; gap: 2px; height: 22px; border-radius: 7px; overflow: hidden; margin: 0 0 16px; }
-.st-strip button { flex: 1 1 0; min-width: 6px; padding: 0; border: 0; display: grid; place-items: center; overflow: hidden; background: var(--accent); color: #fff; font: inherit; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; cursor: pointer; }
-.st-strip button:nth-child(even) { background: color-mix(in srgb, var(--accent) 70%, var(--surface)); }
-.st-strip button:hover { filter: brightness(1.12); }
-.st-strip.many button { font-size: 0; }
-.story { list-style: none; padding: 0; margin: 0 0 14px; }
-.story > li { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; position: relative; padding-bottom: 10px; }
-.story > li::before { content: ""; position: absolute; left: 11.5px; top: 24px; bottom: 0; width: 1px; background: var(--border); }
-.story > li:last-child { padding-bottom: 0; }
-.story > li:last-child::before { display: none; }
-.story > li.st-flash .st-path { animation: st-flash 1.2s ease-out; }
-@keyframes st-flash { from { color: var(--accent-ink); } }
-.st-num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 650; position: relative; z-index: 1; }
-.st-num.plain { background: var(--surface-2); color: var(--muted); }
-.st-body { min-width: 0; }
-.st-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; min-height: 24px; padding-top: 1px; }
-.st-path { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
-.st-meta { margin-left: auto; font-size: 13px; white-space: nowrap; }
-.st-slow { margin-left: 8px; }
-.st-slow .sp-dot { margin: 0 5px 0 0; }
-.st-left { overflow-wrap: anywhere; min-width: 0; }
-.st-acts { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.st-acts > li { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--accent-ink); font-size: 13px; }
-.st-acts > li > .icon { flex: none; }
-.st-act-what { min-width: 0; overflow-wrap: anywhere; }
+/* one visit: who it was in a few chips, then a table of its pages in order, a bar for the time on each */
+.vt-when { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+.vt-when .muted { font-weight: 400; }
+.vt-who { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.vt-who > span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 12.5px; }
+.vt-who .icon { flex: none; color: var(--muted); }
+.vt { margin: 0 0 14px; }
+.vt .rrow { min-height: 34px; }
+/* when a page's name and "via …" do not fit on one line, "via …" goes under the name */
+.vt .rlabel { flex-wrap: wrap; gap: 0 8px; min-width: 0; padding: 5px 0; }
+.vt .rlabel b { font-weight: 600; max-width: 100%; }
+.vt .num.vt-read { width: 48px; }
+.vt-via { max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.vt-via .sp-dot { margin: 0 5px 0 0; }
+.vt-acts { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 1px 8px 5px; color: var(--accent-ink); font-size: 12.5px; }
+.vt-acts > span { display: inline-flex; align-items: center; gap: 5px; }
+.vt-acts .badge { margin-left: 2px; }
+.vt-left { color: var(--text-2); }
+.vt-left a { color: var(--accent-ink); }
 
 @media (max-width: 1199px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -559,7 +549,6 @@ b.ellipsis, span.ellipsis { display: block; }
   .rows { min-height: 0; }
   .feed-row { grid-template-columns: 70px minmax(0, 1fr); }
   .feed-who { grid-column: 1 / -1; padding-left: 82px; }
-  .visit-facts { grid-template-columns: minmax(0, 1fr); }
   .live-now { font-size: 34px; }
   .fstep-label { width: 100%; }
   .site-grid { grid-template-columns: minmax(0, 1fr); }
