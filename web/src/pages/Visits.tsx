@@ -65,7 +65,7 @@ export default function Visits() {
 // ---- one visit as a story: the pages are the steps, and what the person
 // did on a page sits under it ----
 
-interface Act { hit: Hit; out?: string }
+interface Act { hit: Hit; out?: string; pressed?: boolean; led?: string }
 interface Step { n: number; page?: Hit; times: number; acts: Act[] }
 interface Story { steps: Step[]; pages: number; done: number; reading: number; longest: number; left: string }
 
@@ -77,7 +77,12 @@ function tell(hits: Hit[]): Story {
   let cur: Step | undefined
   let left = ''
   hits.forEach((h, i) => {
+    // a site's own event right before a new page, a link out, a file or an email
+    // link was the press that did it: "Menu", then /docs
+    const prev = cur?.acts[cur.acts.length - 1]
+    const mine = prev && !(prev.hit.name in ACT_ICON) ? prev : undefined
     if (h.name === 'pageview') {
+      if (mine && h.ts - mine.hit.ts <= 2) { mine.pressed = true; mine.led = h.path }
       seen[h.path] = (seen[h.path] || 0) + 1
       cur = { n: Object.values(seen).reduce((a, b) => a + b, 0), page: h, times: seen[h.path], acts: [] }
       steps.push(cur)
@@ -88,12 +93,12 @@ function tell(hits: Hit[]): Story {
     if (h.name === OUT) {
       const url = h.props?.url || ''
       // a named press and the link it followed are one thing: "Open on GitHub", then out
-      const prev = cur.acts[cur.acts.length - 1]
       const same = prev && prev.hit.name !== OUT && !prev.out && Math.abs(h.ts - prev.hit.ts) <= 1
       if (last) left = url
-      if (same) { if (!last) prev.out = url; return }
+      if (same) { prev.pressed = true; if (!last) prev.out = url; return }
       if (last && url) return
     }
+    if (mine && h.name in ACT_ICON && h.name !== '404' && h.name !== 'Search' && Math.abs(h.ts - mine.hit.ts) <= 1) mine.pressed = true
     cur.acts.push({ hit: h })
   })
   const views = steps.filter(x => x.page)
@@ -123,19 +128,27 @@ const PLACE = new Set(['where', 'place', 'position', 'placement', 'location', 's
 
 function ActChip({ act, started }: { act: Act; started: number }) {
   const h = act.hit
+  const own = !(h.name in ACT_ICON) // an event the site itself names: "Menu", "Order placed"
   const props = Object.entries(h.props || {}).filter(([, v]) => v !== '')
   const mainKey = ACT_MAIN[h.name] || props.find(([k]) => !PLACE.has(k))?.[0]
   const main = props.find(([k]) => k === mainKey)?.[1]
   const rest = props.filter(([k]) => k !== mainKey && !(h.name === 'Contact Link: Click' && k === 'kind'))
   const shown = !main ? '' : mainKey === 'url' ? (h.name === 'File Download' ? main.split('/').pop() || short(main) : short(main)) : h.name === 'Search' || h.name === 'Click' ? `“${main}”` : main
+  const icon = own ? (act.pressed ? 'hand' : 'check-circle') : h.name === 'Contact Link: Click' && h.props?.kind === 'phone' ? 'phone' : ACT_ICON[h.name]
+  const tip = !own ? undefined : act.led ? `They pressed this, and it opened ${act.led}. “${h.name}” is the name your site gives it.` : `Something they did on this page. “${h.name}” is the name your site gives it.`
   return (
-    <li className="st-act">
-      <Icon name={h.name === 'Contact Link: Click' && h.props?.kind === 'phone' ? 'phone' : ACT_ICON[h.name] || 'zap'} size={14} />
-      <span className="st-act-what"><b>{eventLabel(h.name)}</b>{shown && <span title={mainKey === 'url' ? main : undefined}> · {shown}</span>}</span>
-      {h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}
-      {rest.map(([k, v]) => <span key={k} className="st-act-more">{PLACE.has(k) ? v : `${k}: ${v}`}</span>)}
-      {act.out && <span className="st-act-more" title={act.out}>↗ {hostOf(act.out)}</span>}
-      <span className="st-act-more tnum">{clock(h.ts - started)}</span>
+    <li>
+      <span className="st-act" title={tip}>
+        <Icon name={icon} size={14} />
+        <span className="st-act-what">
+          {own && act.pressed && 'Pressed '}<b>{eventLabel(h.name)}</b>
+          {shown && <span title={mainKey === 'url' ? main : undefined}>{own && act.pressed ? ' › ' : ' · '}{shown}</span>}
+        </span>
+        {h.revenue ? <span className="badge ok-badge">{fmtMoney(h.revenue, h.currency)}</span> : null}
+        {rest.map(([k, v]) => <span key={k} className="st-act-more">{k}: {v}</span>)}
+        {act.out && <span className="st-act-more" title={act.out}>↗ {hostOf(act.out)}</span>}
+      </span>
+      <span className="st-at muted small tnum" title={fmtDateTime(new Date(h.ts * 1000).toISOString())}>{clock(h.ts - started)}</span>
     </li>
   )
 }
