@@ -28,7 +28,7 @@ function niceTicks(max: number): number[] {
 }
 
 export function MainChart({ starts, values, previous, interval, format, height = 240, now, label, notes, tz }: {
-  starts: number[]; values: number[]; previous?: number[]; interval: string; format: (v: number) => string; height?: number; now: number; label: string
+  starts: number[]; values: number[]; previous?: (number | undefined)[]; interval: string; format: (v: number) => string; height?: number; now: number; label: string
   /** What happened on a day; ts = when that day starts. */
   notes?: { id: number; ts?: number; text: string }[]
   /** The site's time zone: days and hours are labelled as they are there. */
@@ -40,13 +40,14 @@ export function MainChart({ starts, values, previous, interval, format, height =
   const n = values.length
   // buckets that have not started yet are not drawn
   const lastReal = useMemo(() => { let i = n - 1; while (i > 0 && starts[i] > now) i--; return i }, [starts, n, now])
-  const max = Math.max(1, ...values.slice(0, lastReal + 1), ...(previous || []).slice(0, n))
+  const max = Math.max(1, ...values.slice(0, lastReal + 1), ...(previous || []).slice(0, n).filter((v): v is number => v !== undefined))
   const ticks = niceTicks(max)
   const top = ticks[ticks.length - 1] || 1
   const x = (i: number) => L + (n > 1 ? (i * (W - L - R)) / (n - 1) : (W - L - R) / 2)
   const y = (v: number) => T + (1 - v / top) * (H - T - B)
   const line = useMemo(() => values.slice(0, lastReal + 1).map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' '), [values, lastReal, W, top]) // eslint-disable-line react-hooks/exhaustive-deps
-  const prevLine = useMemo(() => (previous || []).slice(0, n).map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' '), [previous, n, W, top]) // eslint-disable-line react-hooks/exhaustive-deps
+  // buckets from before the site counted anything are left out: the line starts where counting did
+  const prevLine = useMemo(() => (previous || []).slice(0, n).map((v, i, a) => v === undefined ? '' : `${i && a[i - 1] !== undefined ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(' '), [previous, n, W, top]) // eslint-disable-line react-hooks/exhaustive-deps
   const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - L - R) / 84))))
   const onMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!n) return

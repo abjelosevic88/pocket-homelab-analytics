@@ -61,6 +61,10 @@ export default function Dashboard() {
   // the page looked at, when the filters name exactly one: its way in and out shows
   const onPage = view.filters.find(f => f.dim === 'page' && !f.not)?.value
   const onEvent = view.filters.find(f => f.dim === 'event' && !f.not)?.value
+  // a bucket of the period before that ended before the site counted anything has no number, not a 0
+  const counted = (end: number) => stats.site.first_hit > 0 && end > stats.site.first_hit
+  const prevCounted = stats.previous_series.map((p, i) => counted(stats.previous_series[i + 1]?.start ?? stats.series[0]?.start ?? p.start))
+  const hasBefore = prevCounted.some(Boolean)
   return (
     <div className="dash">
       <div className="dash-head">
@@ -77,23 +81,23 @@ export default function Dashboard() {
       <div className="kpis">
         {METRICS.map(x => {
           const now = stats.totals[x.key] as number, before = stats.previous[x.key] as number
-          const d = delta(now, before, x.lower)
+          const d = hasBefore ? delta(now, before, x.lower) : null
           return (
             <button key={x.key} type="button" className={`kpi ${metric === x.key ? 'on' : ''}`} onClick={() => setMetric(x.key)} aria-pressed={metric === x.key}>
               <span className="kpi-l">{x.label}</span>
               <span className="kpi-v tnum">{x.fmt(now)}</span>
-              <span className={`kpi-d ${d ? (d.good ? 'good' : 'bad') : ''}`} title={`Before: ${x.fmt(before)}`}>{d ? <><Icon name={d.dir === 'up' ? 'trending-up' : d.dir === 'down' ? 'trending-down' : 'minus'} size={13} />{d.text}</> : <span className="muted">—</span>}</span>
+              <span className={`kpi-d ${d ? (d.good ? 'good' : 'bad') : ''}`} title={hasBefore ? `Before: ${x.fmt(before)}` : 'Nothing was counted in the period before'}>{d ? <><Icon name={d.dir === 'up' ? 'trending-up' : d.dir === 'down' ? 'trending-down' : 'minus'} size={13} />{d.text}</> : <span className="muted">—</span>}</span>
             </button>
           )
         })}
       </div>
       <div className="card chart-card">
         <div className="chart-head">
-          <span className="muted small">{m.label} · {stats.range.label}<span className="legend-prev">the period before</span></span>
+          <span className="muted small">{m.label} · {stats.range.label}{hasBefore && <span className="legend-prev">the period before</span>}</span>
           <button type="button" className="btn ghost sm" onClick={() => setNotes(true)} title="Mark what happened on a day"><Icon name="flag" size={14} />Notes{stats.notes?.length ? <span className="count muted">{stats.notes.length}</span> : null}</button>
           <IntervalPicker stats={stats} />
         </div>
-        <MainChart starts={stats.series.map(p => p.start)} values={stats.series.map(m.series)} previous={stats.previous_series.map(m.series)} interval={stats.range.interval} format={m.fmt} now={stats.now} label={m.label} notes={stats.notes} tz={stats.site.tz} />
+        <MainChart starts={stats.series.map(p => p.start)} values={stats.series.map(m.series)} previous={hasBefore ? stats.previous_series.map((p, i) => (prevCounted[i] ? m.series(p) : undefined)) : undefined} interval={stats.range.interval} format={m.fmt} now={stats.now} label={m.label} notes={stats.notes} tz={stats.site.tz} />
       </div>
       <div className="panels">
         {onPage && <PagePaths site={site} page={onPage} />}
