@@ -434,6 +434,8 @@ b.ellipsis, span.ellipsis { display: block; }
 .ptab.on { color: var(--accent-ink); background: var(--accent-soft); font-weight: 600; }
 .rows { display: flex; flex-direction: column; min-height: 288px; }
 .rows-loading, .rows-empty { justify-content: center; align-items: center; text-align: center; padding: 20px; }
+/* an empty list's words and links are one sentence: let them flow as text (a flex column put "Make a funnel" and its "." on lines of their own) */
+.rows-empty { display: block; align-content: center; }
 .rows-h { display: flex; gap: 12px; padding: 0 8px 4px; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .rows-h > span:first-child { flex: 1; }
 .rows .num { width: 64px; text-align: right; flex: none; }
@@ -654,7 +656,7 @@ b.ellipsis, span.ellipsis { display: block; }
 }
 
 /* Google search words */
-.kw-setup { flex-direction: column; gap: 10px; }
+.kw-setup, .rows-empty.kw-setup { display: flex; flex-direction: column; gap: 10px; }
 .kw-setup p { margin: 0; max-width: 420px; line-height: 1.5; }
 .kw-mail { max-width: 100%; }
 .kw-mail .ellipsis { max-width: 320px; font-family: var(--mono); font-size: 12px; }
