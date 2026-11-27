@@ -24,9 +24,13 @@ import (
 //
 // A website loads /js/script.js and sends each page and event to
 // /api/event (the same fields as Plausible's, so its script works too).
-// Nothing identifies a person: the visitor is a hash of the site, the IP
-// address and the browser with a salt that changes every day and is then
-// thrown away. The IP address itself is never stored.
+// By default nothing identifies a person: the visitor is a hash of the
+// site, the IP address and the browser with a salt that changes every day
+// and is then thrown away, and the IP address is not stored. A site that
+// switches on "Know who visits" (options.identify) also keeps the IP
+// address, who owns it, the place on the map, the browser's own random ID
+// (data-identify: localStorage, so returning visitors are known) and what
+// the browser says about itself (screen, hardware, time zone…).
 
 //go:embed tracker/script.js
 var trackerSource string
@@ -67,6 +71,8 @@ type eventIn struct {
 	Vitals   *vitalsIn       `json:"v"`   // engagement: how fast the page was
 	Revenue  json.RawMessage `json:"$"`   // an event's money: { amount, currency }
 	Sections []string        `json:"sec"` // engagement: the page's parts that were on screen (data-pocket-section)
+	ID       string          `json:"id"`  // data-identify: the browser's own random ID
+	X        json.RawMessage `json:"x"`   // data-identify: what the browser says about itself (first page of a load)
 }
 
 // vitalsIn is how fast the page was, as the script measured it: t = the
@@ -290,6 +296,9 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 				Country: place.Country, Region: clip(place.Region, 80), City: clip(place.City, 80),
 				Device: info.Device, Browser: info.Browser, BrowserVersion: info.BrowserVersion, OS: info.OS, OSVersion: info.OSVersion,
 				Language: language(r.Header.Get("Accept-Language"))}
+			if site.Options.Identify {
+				s.who(r, &hit.Visit, ip, place, agent, ref, in)
+			}
 		}
 		if !s.enqueue(hit) {
 			return "busy"
@@ -524,18 +533,142 @@ func (s *Server) clientPlace(r *http.Request, site *store.Site) (string, placeT)
 	if p.Country == "XX" || p.Country == "T1" {
 		p.Country = ""
 	}
-	if p.City == "" || p.Country == "" {
-		g := s.geo.Lookup(ip)
-		if p.Country == "" {
-			p = placeT{Country: g.Country, Region: g.Region, City: g.City}
-		} else if g.Country == p.Country {
-			p.Region, p.City = firstNonEmpty(p.Region, g.Region), firstNonEmpty(p.City, g.City)
-		}
+	g := s.geo.Lookup(ip)
+	if p.Country == "" {
+		p = placeT{Country: g.Country, Region: g.Region, City: g.City}
+	} else if g.Country == p.Country {
+		p.Region, p.City = firstNonEmpty(p.Region, g.Region), firstNonEmpty(p.City, g.City)
+	}
+	if g.Country == p.Country && (g.City == "" || strings.EqualFold(g.City, p.City)) {
+		p.Lat, p.Lon, p.Postal = g.Lat, g.Lon, g.Postal
 	}
 	return ip, p
 }
 
-type placeT struct{ Country, Region, City string }
+type placeT struct {
+	Country, Region, City string
+	Lat, Lon              *float64
+	Postal                string
+}
+
+// ---- who it was (sites that know who visits) ----
+
+// who fills in who a new visit is: the address and who owns it, the place
+// on the map, the browser's own ID and what it says about itself, and what
+// the proxy in front saw of the connection (a Cloudflare Worker).
+func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, agent, ref string, in eventIn) {
+	h := r.Header
+	proxied := h.Get("X-Pocket-Proxy-Key") != "" && h.Get("X-Pocket-Client-IP") != ""
+	addr, err := netip.ParseAddr(strings.Trim(ip, "[]"))
+	if err == nil {
+		v.IP = addr.Unmap().String()
+	}
+	v.Agent = clip(agent, 500)
+	v.ClientID = cleanClientID(in.ID)
+	if ref != "" {
+		v.RefURL = clip(ref, 800)
+	}
+	v.Postal, v.Lat, v.Lon = place.Postal, place.Lat, place.Lon
+	if proxied {
+		if pc := clip(strings.TrimSpace(h.Get("X-Pocket-Postal")), 16); pc != "" {
+			v.Postal = pc
+		}
+		if lat, e1 := strconv.ParseFloat(h.Get("X-Pocket-Lat"), 64); e1 == nil {
+			if lon, e2 := strconv.ParseFloat(h.Get("X-Pocket-Lon"), 64); e2 == nil && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 {
+				v.Lat, v.Lon = &lat, &lon
+			}
+		}
+		if n, err := strconv.ParseInt(h.Get("X-Pocket-ASN"), 10, 64); err == nil && n > 0 {
+			v.ASN = n
+		}
+		v.Network = clip(strings.TrimSpace(h.Get("X-Pocket-Org")), 120)
+	}
+	if v.Network == "" || v.ASN == 0 {
+		if n := s.asn.Network(v.IP); n.ASN > 0 {
+			v.ASN, v.Network = int64(n.ASN), firstNonEmpty(v.Network, clip(n.Org, 120))
+		}
+	}
+	d := cleanDetails(in.X)
+	if al := strings.TrimSpace(h.Get("Accept-Language")); al != "" {
+		d["accept_language"] = clip(al, 200)
+	}
+	if proxied {
+		for k, hdr := range map[string]string{"edge": "X-Pocket-Colo", "http": "X-Pocket-HTTP", "tls": "X-Pocket-TLS", "net_rtt": "X-Pocket-RTT",
+			"ip_timezone": "X-Pocket-Timezone", "continent": "X-Pocket-Continent", "metro": "X-Pocket-Metro"} {
+			if val := clip(strings.TrimSpace(h.Get(hdr)), 80); val != "" {
+				d[k] = val
+			}
+		}
+	}
+	if dnt := h.Get("Dnt"); dnt == "1" {
+		d["dnt"] = true
+	}
+	if h.Get("Sec-Gpc") == "1" {
+		d["gpc"] = true
+	}
+	if len(d) > 0 {
+		v.Details = json.RawMessage(toJSONString(d))
+	}
+}
+
+// cleanClientID keeps a browser's ID when it looks like one (8–64 letters, digits, - or _).
+func cleanClientID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) < 8 || len(id) > 64 {
+		return ""
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return ""
+		}
+	}
+	return id
+}
+
+// cleanDetails keeps up to 40 short facts a browser told about itself:
+// strings (200 characters at most), numbers and yes/no.
+func cleanDetails(raw json.RawMessage) map[string]any {
+	out := map[string]any{}
+	if len(raw) == 0 || string(raw) == "null" {
+		return out
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return out
+	}
+	for k, v := range m {
+		if len(out) >= 40 {
+			break
+		}
+		k = clip(strings.TrimSpace(k), 40)
+		if k == "" {
+			continue
+		}
+		switch t := v.(type) {
+		case string:
+			if t = clip(strings.TrimSpace(t), 200); t != "" {
+				out[k] = t
+			}
+		case float64:
+			if t == t && t > -1e12 && t < 1e12 {
+				out[k] = t
+			}
+		case bool:
+			out[k] = t
+		case []any: // a list of words (languages)
+			parts := []string{}
+			for _, x := range t {
+				if sv, ok := x.(string); ok && len(parts) < 10 {
+					parts = append(parts, clip(sv, 40))
+				}
+			}
+			if len(parts) > 0 {
+				out[k] = strings.Join(parts, ", ")
+			}
+		}
+	}
+	return out
+}
 
 // ---- the daily salt ----
 

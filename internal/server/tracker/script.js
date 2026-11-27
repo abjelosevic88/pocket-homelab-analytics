@@ -15,6 +15,7 @@
   var forms = !s.hasAttribute('data-no-forms')
   var speed = !s.hasAttribute('data-no-speed')
   var missing = !s.hasAttribute('data-no-404')
+  var identify = s.hasAttribute('data-identify')
   var exts = (attr('data-file-types') || 'pdf,zip,dmg,pkg,exe,msi,iso,img,apk,deb,rpm,gz,tgz,7z,rar,csv,xls,xlsx,doc,docx,ppt,pptx,epub,mp3,mp4,mov,txt,json').split(',')
 
   // "Don't count me": ?pocket_ignore=1 once, in this browser
@@ -27,6 +28,67 @@
   } catch (e) {}
   var ignored = function () { try { return localStorage.getItem('pocket_ignore') === '1' } catch (e) { return false } }
 
+  // ---- data-identify: the site knows who visits. A random ID this browser
+  // keeps (returning visitors) and what the browser says about itself ----
+  var bid = ''
+  if (identify) {
+    try {
+      bid = localStorage.getItem('pocket_id') || ''
+      if (!/^[\w-]{8,64}$/.test(bid)) {
+        var r = new Uint8Array(12); (w.crypto || w.msCrypto).getRandomValues(r)
+        bid = Array.prototype.map.call(r, function (b) { return ('0' + b.toString(16)).slice(-2) }).join('')
+        localStorage.setItem('pocket_id', bid)
+      }
+    } catch (e) { bid = '' }
+  }
+  function about() {
+    var x = {}, sc = w.screen || {}, c = n.connection || n.mozConnection || n.webkitConnection, mq = function (q) { try { return w.matchMedia(q).matches } catch (e) { return false } }
+    try {
+      x.screen = sc.width + '×' + sc.height
+      x.window = (w.innerWidth || 0) + '×' + (w.innerHeight || 0)
+      x.dpr = Math.round((w.devicePixelRatio || 1) * 100) / 100
+      x.colors = sc.colorDepth
+      x.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      x.utc_offset = -new Date().getTimezoneOffset()
+      x.languages = n.languages ? [].slice.call(n.languages, 0, 10) : n.language
+      x.platform = n.platform
+      x.cores = n.hardwareConcurrency
+      if (n.deviceMemory) x.memory_gb = n.deviceMemory
+      x.touch = n.maxTouchPoints || 0
+      x.dark = mq('(prefers-color-scheme: dark)')
+      if (mq('(prefers-reduced-motion: reduce)')) x.reduced_motion = true
+      if (mq('(pointer: coarse)')) x.coarse_pointer = true
+      x.cookies = !!n.cookieEnabled
+      if (n.globalPrivacyControl) x.gpc = true
+      if (n.doNotTrack === '1') x.dnt = true
+      if (n.pdfViewerEnabled) x.pdf_viewer = true
+      if (c) { x.net = c.effectiveType; if (c.type) x.net_type = c.type; if (c.downlink) x.downlink_mbps = c.downlink; if (c.rtt) x.rtt_ms = c.rtt; if (c.saveData) x.save_data = true }
+      if (w.matchMedia && mq('(display-mode: standalone)')) x.installed_app = true
+    } catch (e) {}
+    try {
+      var cv = d.createElement('canvas'), gl = cv.getContext('webgl') || cv.getContext('experimental-webgl')
+      var ext = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      if (ext) { x.gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL); x.gpu_vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) }
+    } catch (e) {}
+    return x
+  }
+  // Chrome, Edge and others say more when asked: the real system version, the phone's model
+  function aboutMore(x, done) {
+    var ua = n.userAgentData
+    if (!ua || !ua.getHighEntropyValues) { done(x); return }
+    var t = setTimeout(function () { done(x); done = function () {} }, 300)
+    ua.getHighEntropyValues(['model', 'platformVersion', 'architecture', 'bitness', 'fullVersionList']).then(function (h) {
+      if (h.model) x.model = h.model
+      if (h.platform) x.os_name = h.platform
+      if (h.platformVersion) x.os_version = h.platformVersion
+      if (h.architecture) x.arch = h.architecture + (h.bitness ? '-' + h.bitness : '')
+      var b = (h.fullVersionList || []).filter(function (v) { return !/Not.?A.?Brand|Chromium/i.test(v.brand) })[0]
+      if (b) x.browser_version = b.brand + ' ' + b.version
+      if (ua.mobile) x.mobile = true
+      clearTimeout(t); done(x); done = function () {}
+    }, function () { clearTimeout(t); done(x); done = function () {} })
+  }
+
   function send(name, opts, cb) {
     opts = opts || {}
     if (n.webdriver || w._phantom || w.__nightmare || w.Cypress || ignored() || /^file:/.test(l.protocol)) { cb && cb(); return }
@@ -35,6 +97,8 @@
     if (opts.props) p.p = opts.props
     if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd; if (opts.v) p.v = opts.v; if (opts.sec && opts.sec.length) p.sec = opts.sec }
     if (opts.rev) p.$ = opts.rev
+    if (bid && name !== 'engagement') p.id = bid
+    if (opts.x) p.x = opts.x
     var body = JSON.stringify(p)
     try {
       if (n.sendBeacon && n.sendBeacon(api, new Blob([body], { type: 'text/plain' }))) { cb && cb(); return }
@@ -166,8 +230,12 @@
     if (secObs) secObs.disconnect()
     secOrder = []; secSeen = {}; secSent = 0; secCount = 0
     setTimeout(function () { onScroll(); watchSections() }, 300)
-    send('pageview', { r: first ? d.referrer || null : null })
-    if (first && missing && notFound()) send('404', { props: { from: cameFrom() } })
+    var r = first ? d.referrer || null : null, was = first
+    if (identify && first) aboutMore(about(), function (x) { send('pageview', { r: r, x: x }); if (missing && notFound()) send('404', { props: { from: cameFrom() } }) })
+    else {
+      send('pageview', { r: r })
+      if (was && missing && notFound()) send('404', { props: { from: cameFrom() } })
+    }
     first = false
   }
   // a page that does not exist: the server said 404 (or the page says so with data-pocket-404)

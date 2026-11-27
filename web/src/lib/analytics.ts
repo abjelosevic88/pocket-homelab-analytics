@@ -83,7 +83,13 @@ export const DIM_LABEL: Record<string, string> = {
   browser_version: 'Browser version', os: 'System', os_version: 'System version', language: 'Language', hostname: 'Host', page: 'Page', entry: 'Entry page',
   exit: 'Exit page', event: 'Event', goal: 'Goal', outbound: 'Link', download: 'File', click: 'Clicked',
   contact: 'Email or phone', form: 'Form', search: 'Searched for', notfound: 'Missing page', prop: 'Detail', from: 'The page with the link',
+  network: 'Network', ip: 'IP address', postal: 'Postal code', returning: 'New or returning', screen: 'Screen', timezone: 'Time zone',
 }
+
+// Owners of data centres and clouds: a visit from one is a server, a VPN or a robot, rarely a person at home.
+const HOSTING = /amazon|aws|google cloud|google llc|microsoft|azure|digitalocean|hetzner|ovh|linode|akamai|vultr|choopa|oracle|alibaba|tencent|contabo|scaleway|leaseweb|m247|datacamp|cloudflare|fastly|hostinger|ionos|netcup|alphavps|hosting|server|data ?cent|cdn77|psychz|quadranet|colocrossing|packet|equinix|zenlayer|g-core|gcore|kamatera|upcloud|nforce|worldstream|serverius|tzulo|ipxo|private internet access|nordvpn|expressvpn|mullvad|proton|surfshark|cyberghost|hide\.me|windscribe/i
+/** Whether a network is a data centre, a cloud or a VPN. */
+export const isHosting = (network?: string) => !!network && HOSTING.test(network)
 
 /** The lists that count things people did (not visits): their number column says "People". */
 export const DID_DIMS = new Set(['event', 'outbound', 'download', 'click', 'contact', 'form', 'search', 'notfound', 'prop', 'from'])
@@ -104,7 +110,7 @@ export function valueLabel(dim: string, v: string): string {
   return v
 }
 
-export const FILTERABLE = new Set(['source', 'channel', 'referrer', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'country', 'region', 'city', 'device', 'browser', 'os', 'language', 'page', 'entry', 'exit', 'event', 'hostname'])
+export const FILTERABLE = new Set(['source', 'channel', 'referrer', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'country', 'region', 'city', 'device', 'browser', 'os', 'language', 'page', 'entry', 'exit', 'event', 'hostname', 'network', 'ip', 'postal', 'returning', 'screen', 'timezone'])
 
 export const RANGES: { key: string; label: string; hint?: string }[] = [
   { key: 'today', label: 'Today', hint: 'D' }, { key: 'yesterday', label: 'Yesterday', hint: 'E' }, { key: '7d', label: 'Last 7 days', hint: 'W' },

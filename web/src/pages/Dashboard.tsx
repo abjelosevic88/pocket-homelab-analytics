@@ -115,6 +115,9 @@ export default function Dashboard() {
         <Panel site={site} title="What they used" icon="monitor" tabs={[
           { dim: 'device', label: 'Devices' }, { dim: 'browser', label: 'Browsers' }, { dim: 'os', label: 'Systems' },
         ]} />
+        {site.options.identify && <Panel site={site} title="Who they are" icon="users" tabs={[
+          { dim: 'network', label: 'Networks' }, { dim: 'ip', label: 'Addresses' }, { dim: 'returning', label: 'New or back' }, { dim: 'screen', label: 'Screens' }, { dim: 'timezone', label: 'Time zones' },
+        ]} />}
         <Goals site={site} />
         {onEvent ? <EventDetails site={site} event={onEvent} /> : <Panel site={site} title="What they did" icon="zap" tabs={[
           { dim: 'event', label: 'Events' }, ...(site.options.forms ? [{ dim: 'form', label: 'Forms' }] : []), ...(site.options.search ? [{ dim: 'search', label: 'Searches' }] : []), ...(site.options.clicks ? [{ dim: 'click', label: 'Clicks' }] : []),
@@ -200,7 +203,7 @@ type Tab = { dim: string; label: string; extra?: string }
 
 function rowLabel(dim: string, r: Row): React.ReactNode {
   if (dim === 'country') return <><span className="flag" aria-hidden="true">{flag(r.value)}</span>{countryName(r.value)}</>
-  if ((dim === 'region' || dim === 'city') && r.country) return <><span className="flag" aria-hidden="true">{flag(r.country)}</span>{r.value}</>
+  if ((dim === 'region' || dim === 'city' || dim === 'ip' || dim === 'postal') && r.country) return <><span className="flag" aria-hidden="true">{flag(r.country)}</span>{r.value}</>
   if (dim === 'device') return <><Icon name={deviceIcon(r.value)} size={14} className="muted" />{r.value}</>
   if (dim === 'source' && r.value !== 'Direct') return <><Favicon host={r.value} />{r.value}</>
   if (dim === 'referrer') return <><Favicon host={r.value.split('/')[0]} />{r.value}</>

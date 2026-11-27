@@ -192,6 +192,12 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
         <CopyField value={site.ignore_url} label="The link that stops counting a browser" />
       </Field>
     </Section>
+    <Section title="Know who visits" sub="Keeps each visitor's IP address, who owns it (an internet provider, a company, a data centre), roughly where on the map, the browser's own ID so you see when the same person comes back, and what their browser says about itself (screen, hardware, time zone, languages).">
+      <SettingRow title="Know who visits" help="Copy the line on your pages again after switching this on: it gets data-identify. The IP address and the browser's ID are personal data — say so in your site's privacy notice; in the EU the browser ID needs the visitor's consent."><Switch checked={!!o.identify} onChange={v => set({ identify: v })} /></SettingRow>
+      {o.identify && <SettingRow title="Forget who they were after" help="The visits and their pages stay; the address, network, map place, browser ID and details are wiped.">
+        <Select value={String(o.forget_days || 0)} onChange={v => set({ forget_days: Number(v) })} options={[{ value: '0', label: 'Never' }, { value: '30', label: '30 days' }, { value: '90', label: '90 days' }, { value: '180', label: '6 months' }, { value: '365', label: '1 year' }]} />
+      </SettingRow>}
+    </Section>
     <Section title="What people press">
       <SettingRow title="Links to other sites" help="Which links people follow away from your site, and which email addresses and phone numbers they press."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>
       <SettingRow title="Files" help="Which PDFs, zips and other files people download."><Switch checked={o.downloads} onChange={v => set({ downloads: v })} /></SettingRow>
@@ -211,7 +217,7 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
         <textarea rows={3} value={exclude} onChange={e => setExclude(e.target.value)} onBlur={() => { if (exclude !== o.exclude.join('\n')) set({ exclude: exclude.split('\n').map(x => x.trim()).filter(Boolean) }) }} placeholder="/admin*" />
       </Field>
     </Section>
-    <Section title="The line on your pages" sub="Everything above works with the line you already have. Copy it again only after changing “Every link and button” or “Pages by #”.">
+    <Section title="The line on your pages" sub="Everything above works with the line you already have. Copy it again only after changing “Know who visits”, “Every link and button” or “Pages by #”.">
       <Snippet site={site} />
     </Section>
   </>

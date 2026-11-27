@@ -86,6 +86,9 @@ func snippet(site *store.Site, script, api string) string {
 	if site.Options.Clicks {
 		attrs = append(attrs, "data-clicks")
 	}
+	if site.Options.Identify {
+		attrs = append(attrs, "data-identify")
+	}
 	if !site.Options.Outbound {
 		attrs = append(attrs, "data-no-outbound")
 	}
@@ -227,6 +230,9 @@ func (in siteIn) apply(site *store.Site) string {
 		o.Exclude = ex
 		if o.KeepDays < 0 || o.KeepDays > 36500 {
 			return "keep visits for 0 (always) to 36500 days"
+		}
+		if o.ForgetDays < 0 || o.ForgetDays > 36500 {
+			return "keep who visitors were for 0 (always) to 36500 days"
 		}
 		site.Options = o
 	}

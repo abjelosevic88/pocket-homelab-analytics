@@ -1,13 +1,13 @@
 // Visits one by one: where each came from, which pages in which order, how
-// long — never who it was.
-import { useEffect, useState } from 'react'
+// long — and, on a site that knows who visits, who it was.
+import React, { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useData } from '../lib/data'
-import type { Hit, Visit } from '../lib/types'
-import { RANGES, countryName, eventLabel, deviceIcon, flag, fmtDur, fmtMoney, fmtSpeed, languageName, rate, useView } from '../lib/analytics'
+import type { Hit, SameVisitor, Visit, VisitDetail } from '../lib/types'
+import { RANGES, countryName, eventLabel, deviceIcon, flag, fmtDur, fmtMoney, fmtSpeed, isHosting, languageName, rate, useView } from '../lib/analytics'
 import { fmtDateTime } from '../lib/format'
-import { Empty, Loading, type MenuItem, MenuButton, Modal } from '../components/ui'
+import { Empty, Loading, type MenuItem, MenuButton, Modal, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { useCrumb } from '../components/Layout'
 
@@ -51,13 +51,13 @@ export default function Visits() {
           <button key={v.id} type="button" className="visit-row" onClick={() => setOpen(v.id)}>
             <span className="vr-when tnum">{fmtDateTime(new Date(v.started * 1000).toISOString())}</span>
             <span className="vr-path ellipsis"><b>{v.entry}</b>{v.pageviews > 1 && <span className="muted"> → {v.pageviews - 1} more{v.exit !== v.entry ? ` · left from ${v.exit}` : ''}</span>}</span>
-            <span className="vr-meta muted small ellipsis"><span className="flag">{flag(v.country)}</span>{v.city || countryName(v.country)} · <Icon name={deviceIcon(v.device)} size={12} /> {v.browser} · {v.source}</span>
+            <span className="vr-meta muted small ellipsis"><span className="flag">{flag(v.country)}</span>{v.city || countryName(v.country)} · <Icon name={deviceIcon(v.device)} size={12} /> {v.browser} · {v.source}{v.network ? ` · ${v.network}` : ''}{v.ip ? ` · ${v.ip}` : ''}</span>
             <span className="vr-dur muted small tnum">{fmtDur(v.last - v.started || v.engaged / 1000)}</span>
           </button>
         ))}
         {list.length < total && <button type="button" className="panel-more" disabled={busy} onClick={more}>{busy ? 'Loading…' : `Show ${Math.min(PAGE, total - list.length)} more`}</button>}
       </div>}
-      {open > 0 && <VisitSheet siteID={Number(id)} visitID={open} onClose={() => setOpen(0)} />}
+      {open > 0 && <VisitSheet siteID={Number(id)} visitID={open} onOpen={setOpen} onClose={() => setOpen(0)} />}
     </div>
   )
 }
@@ -187,24 +187,86 @@ function VisitStory({ visit, hits }: { visit: Visit; hits: Hit[] }) {
   )
 }
 
-function VisitSheet({ siteID, visitID, onClose }: { siteID: number; visitID: number; onClose: () => void }) {
-  const [data, setData] = useState<{ visit: Visit; hits: Hit[] } | null>(null)
+const ORD = (n: number) => { const t = n % 100, u = n % 10; return `${n}${t >= 11 && t <= 13 ? 'th' : u === 1 ? 'st' : u === 2 ? 'nd' : u === 3 ? 'rd' : 'th'}` }
+const day = (ts: number) => fmtDateTime(new Date(ts * 1000).toISOString())
+
+function VisitSheet({ siteID, visitID, onOpen, onClose }: { siteID: number; visitID: number; onOpen: (id: number) => void; onClose: () => void }) {
+  const [data, setData] = useState<VisitDetail | null>(null)
   const [err, setErr] = useState(false)
-  useEffect(() => { api.get<{ visit: Visit; hits: Hit[] }>(`${V1}/sites/${siteID}/visits/${visitID}`).then(setData).catch(() => setErr(true)) }, [siteID, visitID])
+  const { toast } = useToast()
+  useEffect(() => { setData(null); api.get<VisitDetail>(`${V1}/sites/${siteID}/visits/${visitID}`).then(setData).catch(() => setErr(true)) }, [siteID, visitID])
   const v = data?.visit
+  const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => toast('Copied', 'ok'))
+  const known = !!(v && (v.ip || v.client_id || v.details))
+  const n = (data?.others_total || 0)
   return (
     <Modal title="One visit" onClose={onClose} size="lg">
       {err ? <Empty title="This visit is gone" icon="alert" /> : !v || !data ? <Loading /> : <>
-        <p className="vt-when">{fmtDateTime(new Date(v.started * 1000).toISOString())}{v.last - v.started >= 1 ? <span className="muted"> · {fmtDur(v.last - v.started)}</span> : null}</p>
+        <p className="vt-when">{day(v.started)}{v.last - v.started >= 1 ? <span className="muted"> · {fmtDur(v.last - v.started)}</span> : null}</p>
         <div className="vt-who">
-          <span title={[v.city, v.region, countryName(v.country)].filter(Boolean).join(', ')}><span className="flag">{flag(v.country)}</span>{[v.city, countryName(v.country)].filter(Boolean).join(', ')}</span>
+          <span title={[v.city, v.region, v.postal, countryName(v.country)].filter(Boolean).join(', ')}><span className="flag">{flag(v.country)}</span>{[v.city, countryName(v.country)].filter(Boolean).join(', ')}</span>
           <span title={v.device}><Icon name={deviceIcon(v.device)} size={13} />{v.browser} {v.browser_version} · {v.os} {v.os_version}</span>
           {v.language && <span title="The language of their browser"><Icon name="globe" size={13} />{languageName(v.language)}</span>}
-          <span title="Where they came from"><Icon name="link" size={13} />{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · “${v.utm_campaign}”` : ''}</span>
+          <span title={v.ref_url || 'Where they came from'}><Icon name="link" size={13} />{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · “${v.utm_campaign}”` : ''}</span>
+          {v.ip && <button type="button" className="vt-chip-btn" title="Copy the IP address" onClick={() => copy(v.ip!)}><Icon name="server" size={13} /><span className="mono">{v.ip}</span></button>}
+          {v.network && <span title={v.asn ? `AS${v.asn}` : undefined}><Icon name="layers" size={13} />{v.network}{isHosting(v.network) && <span className="badge warn">data centre / VPN</span>}</span>}
+          {(v.client_id || v.ip) && <span title={v.client_id ? 'Known by the ID their browser keeps' : 'Known by the IP address only'}><Icon name="user" size={13} />{n ? `${ORD(n + 1)} visit · first ${day(data.first_seen || v.started)}` : 'First visit'}</span>}
         </div>
         <VisitStory visit={v} hits={data.hits} />
-        <p className="muted small">Nothing here tells who this was: no IP address, no cookie. The same person tomorrow is a new visitor.</p>
+        {known && <WhoDetails v={v} host={data.host} copy={copy} />}
+        {data.others && data.others.length > 0 && <OtherVisits list={data.others} total={n} onOpen={onOpen} />}
+        {!known && <p className="muted small">Nothing here tells who this was: this site does not keep IP addresses or a browser ID (Site settings → What is counted → Know who visits).</p>}
       </>}
     </Modal>
+  )
+}
+
+/** Everything known about who it was, as label → value lines. */
+function WhoDetails({ v, host, copy }: { v: Visit; host?: string; copy: (t: string) => void }) {
+  const d = v.details || {}
+  const s = (k: string) => (d[k] === undefined || d[k] === '' ? '' : String(d[k]))
+  const yes = (k: string) => d[k] === true
+  const place = [v.city, v.region, v.postal, countryName(v.country)].filter(Boolean).join(', ')
+  const tzOff = s('ip_timezone') && s('timezone') && s('ip_timezone') !== s('timezone')
+  const lines: [string, React.ReactNode][] = [
+    ['IP address', v.ip ? <button type="button" className="linkish mono" onClick={() => copy(v.ip!)}>{v.ip}</button> : ''],
+    ['Host name', host ? <span className="mono">{host}</span> : ''],
+    ['Network', v.network ? <>{v.network}{v.asn ? <span className="muted"> · AS{v.asn}</span> : null}</> : ''],
+    ['Place', place ? <>{place}{v.lat != null && v.lon != null && <> · <a href={`https://www.openstreetmap.org/?mlat=${v.lat}&mlon=${v.lon}#map=11/${v.lat}/${v.lon}`} target="_blank" rel="noreferrer noopener">map</a></>}</> : ''],
+    ['Time zone', s('timezone') ? <>{s('timezone')}{tzOff && <span className="badge warn" title={`The address is in ${s('ip_timezone')}: a VPN, or travelling`}>not where the address is</span>}</> : ''],
+    ['Languages', s('languages') || s('accept_language')],
+    ['Screen', [s('screen'), s('window') && `window ${s('window')}`, s('dpr') && `×${s('dpr')}`, s('colors') && `${s('colors')}-bit`].filter(Boolean).join(' · ')],
+    ['Device', [s('model'), s('os_name') && s('os_version') ? `${s('os_name')} ${s('os_version')}` : '', s('arch'), s('platform')].filter(Boolean).join(' · ')],
+    ['Hardware', [s('cores') && `${s('cores')} cores`, s('memory_gb') && `${s('memory_gb')} GB+ memory`, s('gpu')].filter(Boolean).join(' · ')],
+    ['Browser', s('browser_version')],
+    ['Connection', [s('net'), s('net_type'), s('downlink_mbps') && `${s('downlink_mbps')} Mb/s`, s('rtt_ms') && `${s('rtt_ms')} ms`, yes('save_data') && 'data saver', s('http'), s('tls')].filter(Boolean).join(' · ')],
+    ['Looks', [yes('dark') ? 'dark mode' : d.dark === false ? 'light mode' : '', yes('reduced_motion') && 'less motion', Number(d.touch) > 0 && `touch (${d.touch} points)`, yes('installed_app') && 'opened as an app'].filter(Boolean).join(' · ')],
+    ['Privacy', [yes('gpc') && 'asks not to be sold or shared (GPC)', yes('dnt') && 'Do Not Track on', d.cookies === false && 'cookies off'].filter(Boolean).join(' · ')],
+    ['Came from', v.ref_url ? <a href={v.ref_url} target="_blank" rel="noreferrer noopener" className="ellipsis">{v.ref_url}</a> : ''],
+    ['Browser ID', v.client_id ? <span className="mono">{v.client_id}</span> : ''],
+    ['Reached us at', s('edge') ? `Cloudflare ${s('edge')}${s('net_rtt') ? ` · ${s('net_rtt')} ms away` : ''}` : ''],
+    ['User-Agent', v.agent ? <span className="mono small">{v.agent}</span> : ''],
+  ]
+  return (
+    <div className="rows wide vt-facts">
+      <div className="rows-h"><span>Who it was</span></div>
+      {lines.filter(([, val]) => val).map(([k, val]) => <div key={k} className="vt-fact"><span className="muted">{k}</span><span>{val}</span></div>)}
+    </div>
+  )
+}
+
+/** Their other visits: the same browser, or the same address. */
+function OtherVisits({ list, total, onOpen }: { list: SameVisitor[]; total: number; onOpen: (id: number) => void }) {
+  return (
+    <div className="rows wide vt-others">
+      <div className="rows-h"><span>Their other visits{total > list.length ? ` (latest ${list.length} of ${total})` : ''}</span><span className="num">Pages</span><span className="num">Time</span></div>
+      {list.map(o => (
+        <button key={o.id} type="button" className="rrow" onClick={() => onOpen(o.id)} title={o.by === 'address' ? 'Same IP address (could be someone else there)' : 'Same browser'}>
+          <span className="rlabel grow"><span className="tnum muted">{day(o.started)}</span><b className="ellipsis">{o.entry}</b><span className="vt-via">{o.by === 'address' ? 'same address' : 'same browser'}</span></span>
+          <span className="num tnum">{o.pageviews}</span>
+          <span className="num tnum">{o.last - o.started >= 1 ? fmtDur(o.last - o.started) : <span className="muted">–</span>}</span>
+        </button>
+      ))}
+    </div>
   )
 }

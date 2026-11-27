@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -317,7 +318,17 @@ func (s *Server) handleVisit(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "visit")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"visit": v, "hits": hits})
+	out := map[string]any{"visit": v, "hits": hits}
+	if v.IP != "" || v.ClientID != "" {
+		others, total, first, err := s.store.OtherVisits(r.Context(), site.ID, v, 20)
+		if err == nil {
+			out["others"], out["others_total"], out["first_seen"] = others, total, first
+		}
+		if v.IP != "" {
+			out["host"] = reverseName(r.Context(), v.IP)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleEventNames lists the site's own events and, for one, its property names.
@@ -360,10 +371,18 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		loc := s.zoneOf(ctx, site)
-		_ = cw.Write([]string{"started", "seconds", "pages", "events", "entry", "exit", "source", "channel", "referrer", "utm_source", "utm_medium", "utm_campaign", "country", "region", "city", "device", "browser", "os", "language"})
+		_ = cw.Write([]string{"started", "seconds", "pages", "events", "entry", "exit", "source", "channel", "referrer", "utm_source", "utm_medium", "utm_campaign", "country", "region", "city", "device", "browser", "os", "language",
+			"ip", "network", "asn", "postal", "lat", "lon", "browser_id", "user_agent", "referrer_url", "details"})
+		ff := func(f *float64) string {
+			if f == nil {
+				return ""
+			}
+			return strconv.FormatFloat(*f, 'f', 4, 64)
+		}
 		for _, v := range visits {
 			_ = cw.Write([]string{time.Unix(v.Started, 0).In(loc).Format("2006-01-02 15:04:05"), strconv.FormatInt(v.Last-v.Started, 10), strconv.Itoa(v.Pageviews), strconv.Itoa(v.Events),
-				v.Entry, v.Exit, v.Source, v.Channel, v.Referrer, v.UTMSource, v.UTMMedium, v.UTMCampaign, v.Country, v.Region, v.City, v.Device, v.Browser, v.OS, v.Language})
+				v.Entry, v.Exit, v.Source, v.Channel, v.Referrer, v.UTMSource, v.UTMMedium, v.UTMCampaign, v.Country, v.Region, v.City, v.Device, v.Browser, v.OS, v.Language,
+				v.IP, v.Network, strconv.FormatInt(v.ASN, 10), v.Postal, ff(v.Lat), ff(v.Lon), v.ClientID, v.Agent, v.RefURL, string(v.Details)})
 		}
 		return
 	}
@@ -382,4 +401,16 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) periodTotals(ctx context.Context, site *store.Site, from, to time.Time) store.Totals {
 	t, _ := s.store.Totals(ctx, store.Query{SiteID: site.ID, From: from.Unix(), To: to.Unix()})
 	return t
+}
+
+// reverseName is the name an address's owner gave it (crawl-66-249-66-1.googlebot.com,
+// c-73-1-2-3.hsd1.ca.comcast.net); "" when it has none or it takes too long.
+func reverseName(ctx context.Context, ip string) string {
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
+	if err != nil || len(names) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(names[0], ".")
 }

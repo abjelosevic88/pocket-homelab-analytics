@@ -45,6 +45,7 @@ type Server struct {
 	kwCache map[string]kwEntry
 
 	geo      *geo.DB
+	asn      *geo.DB             // who owns an address (DB-IP ASN Lite), for sites that know who visits
 	hits     chan store.Incoming // to the writer
 	flushReq chan chan struct{}
 	stored   atomic.Int64
@@ -85,6 +86,7 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Se
 		core:     core.New(cfg.CoreURL, core.Options{DB: st.DB, TokenFile: cfg.DataDir + "/core.token", UserAgent: cfg.UserAgent}),
 		resolved: map[string]resolvedURL{}, aiSem: make(chan struct{}, 3), gsc: gsc.New(), kwCache: map[string]kwEntry{}, robotBuf: map[robotKey]int{}, agentBuf: map[agentKey]agentSeen{},
 		geo:  geo.New(cfg.GeoDB, cfg.GeoDBPath, cfg.DataDir+"/geo", cfg.UserAgent, log),
+		asn:  geo.New(asnKind(cfg.GeoDB), "", cfg.DataDir+"/geo", cfg.UserAgent, log),
 		hits: make(chan store.Incoming, 20000), flushReq: make(chan chan struct{}),
 		salts: map[string]string{}, sitesByDomain: map[string]*store.Site{}, rate: map[string]*bucket{}, counts: map[string]int64{}}
 }
@@ -97,6 +99,7 @@ func (s *Server) Bootstrap(ctx context.Context) error {
 	}
 	go s.writer(ctx)
 	s.geo.Start(ctx)
+	s.asn.Start(ctx)
 	n, err := s.store.CountUsers(ctx)
 	if err != nil {
 		return err
@@ -207,13 +210,28 @@ func (s *Server) janitor(ctx context.Context) {
 	}
 }
 
-// trim removes visits older than each site keeps.
+// asnKind is the network database's kind: none when places are off.
+func asnKind(geoKind string) string {
+	if geoKind == "off" || geoKind == "" {
+		return "off"
+	}
+	return "asn"
+}
+
+// trim removes visits older than each site keeps, and who visitors were
+// after the days a site keeps that.
 func (s *Server) trim(ctx context.Context) {
 	sites, err := s.store.AllSites(ctx)
 	if err != nil {
 		return
 	}
 	for _, st := range sites {
+		if st.Options.ForgetDays > 0 {
+			cut := time.Now().AddDate(0, 0, -st.Options.ForgetDays).Unix()
+			if n, err := s.store.ForgetWho(ctx, st.ID, cut); err == nil && n > 0 {
+				s.log.Info("who visitors were wiped", "site", st.Domain, "visits", n)
+			}
+		}
 		if st.Options.KeepDays <= 0 {
 			continue
 		}
@@ -262,7 +280,7 @@ var eventTopics = []string{"analytics.spike", "analytics.quiet", "analytics.week
 func (s *Server) registerWithCore(ctx context.Context) error {
 	m := core.Manifest{
 		Slug: "analytics", Name: "Pocket Analytics",
-		Description: "Who visits your websites, without cookies or a banner: visitors, pages, where they came from (search, social, AI assistants, campaigns), countries and cities, devices and browsers, time on page and how far down people read, links and files clicked, goals and funnels, visits one by one and the people on the site right now. One small script on each site; the IP address is never kept and a visitor cannot be followed from one day to the next. A weekly report, a note when far more people than usual come or when a site goes quiet, and Pocket AI to explain the numbers.",
+		Description: "Who visits your websites, without cookies or a banner: visitors, pages, where they came from (search, social, AI assistants, campaigns), countries and cities, devices and browsers, time on page and how far down people read, links and files clicked, goals and funnels, visits one by one and the people on the site right now. One small script on each site; by default the IP address is never kept and a visitor cannot be followed from one day to the next — or switch on “Know who visits” per site for IP addresses, networks, map places, returning visitors and device details. A weekly report, a note when far more people than usual come or when a site goes quiet, and Pocket AI to explain the numbers.",
 		Icon:        "/favicon.svg", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "ANALYTICS",
 		Publishes: eventTopics,

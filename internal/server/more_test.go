@@ -188,12 +188,12 @@ func TestMoreThatIsCounted(t *testing.T) {
 
 // The script the websites load says everything it measures.
 func TestScriptHasTheNewParts(t *testing.T) {
-	for _, part := range []string{"largest-contentful-paint", "layout-shift", "Form: Submission", "Contact Link: Click", "responseStatus", "data-pocket-404", "p.$ = opts.rev"} {
+	for _, part := range []string{"largest-contentful-paint", "layout-shift", "Form: Submission", "Contact Link: Click", "responseStatus", "data-pocket-404", "p.$ = opts.rev", "data-identify", "pocket_id"} {
 		if !strings.Contains(trackerJS, part) {
 			t.Fatalf("the script lacks %q", part)
 		}
 	}
-	if strings.Contains(trackerJS, "\n//") || len(trackerJS) > 12000 {
+	if strings.Contains(trackerJS, "\n//") || len(trackerJS) > 16000 {
 		t.Fatalf("the script is %d bytes or has comment lines", len(trackerJS))
 	}
 }

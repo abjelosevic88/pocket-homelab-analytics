@@ -24,9 +24,30 @@ type Place struct {
 	Country string // ISO 3166-1 alpha-2
 	Region  string
 	City    string
+	Lat     *float64 // roughly where (a city's middle, not a house)
+	Lon     *float64
+	Postal  string
+}
+
+// Network is who owns an address: an internet provider, a company, a data centre.
+type Network struct {
+	ASN uint
+	Org string
+}
+
+type asnRecord struct {
+	Number uint   `maxminddb:"autonomous_system_number"`
+	Org    string `maxminddb:"autonomous_system_organization"`
 }
 
 type record struct {
+	Location struct {
+		Latitude  *float64 `maxminddb:"latitude"`
+		Longitude *float64 `maxminddb:"longitude"`
+	} `maxminddb:"location"`
+	Postal struct {
+		Code string `maxminddb:"code"`
+	} `maxminddb:"postal"`
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
@@ -168,6 +189,9 @@ func (d *DB) State() string { return d.state.Load().(string) }
 
 // Lookup finds an address; the zero Place when it cannot.
 func (d *DB) Lookup(ip string) Place {
+	if d == nil {
+		return Place{}
+	}
 	r := d.r.Load()
 	addr := net.ParseIP(ip)
 	if r == nil || addr == nil || addr.IsPrivate() || addr.IsLoopback() {
@@ -177,7 +201,7 @@ func (d *DB) Lookup(ip string) Place {
 	if err := r.Lookup(addr, &rec); err != nil {
 		return Place{}
 	}
-	p := Place{Country: rec.Country.ISOCode, City: rec.City.Names["en"]}
+	p := Place{Country: rec.Country.ISOCode, City: rec.City.Names["en"], Lat: rec.Location.Latitude, Lon: rec.Location.Longitude, Postal: rec.Postal.Code}
 	if len(rec.Subdivisions) > 0 {
 		p.Region = rec.Subdivisions[0].Names["en"]
 	}
@@ -185,4 +209,21 @@ func (d *DB) Lookup(ip string) Place {
 		p.Country = ""
 	}
 	return p
+}
+
+// Network finds who owns an address (a DB made with kind "asn"); zero when it cannot.
+func (d *DB) Network(ip string) Network {
+	if d == nil {
+		return Network{}
+	}
+	r := d.r.Load()
+	addr := net.ParseIP(ip)
+	if r == nil || addr == nil || addr.IsPrivate() || addr.IsLoopback() {
+		return Network{}
+	}
+	var rec asnRecord
+	if err := r.Lookup(addr, &rec); err != nil {
+		return Network{}
+	}
+	return Network{ASN: rec.Number, Org: rec.Org}
 }

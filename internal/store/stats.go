@@ -32,6 +32,23 @@ var visitCols = map[string]string{
 	"utm_campaign": "utm_campaign", "utm_content": "utm_content", "utm_term": "utm_term", "country": "country", "region": "region",
 	"city": "city", "device": "device", "browser": "browser", "browser_version": "browser_version", "os": "os", "os_version": "os_version",
 	"entry": "entry", "exit": "exit", "language": "language", "hostname": "hostname",
+	"network": "network", "ip": "ip", "postal": "postal", "returning": "returning", "screen": "screen", "timezone": "timezone",
+}
+
+// returningExpr says whether a visit's browser (its own ID) or, without
+// one, its IP address came before: "Returning" or "New" ("" = not known).
+const returningExpr = `(CASE WHEN v.client_id = '' AND v.ip = '' THEN '' WHEN EXISTS (SELECT 1 FROM visits p WHERE p.site_id = v.site_id AND p.started < v.started AND p.id <> v.id AND
+	((v.client_id <> '' AND p.client_id = v.client_id) OR (v.client_id = '' AND p.ip = v.ip))) THEN 'Returning' ELSE 'New' END)`
+
+// dimExpr is the SQL for a dimension stored on (or worked out from) a visit v.
+func dimExpr(col string) string {
+	switch col {
+	case "returning":
+		return returningExpr
+	case "screen", "timezone": // what the browser said about itself (details JSON)
+		return "COALESCE(json_extract(CASE WHEN json_valid(v.details) THEN v.details END, '$." + col + "'), '')"
+	}
+	return "v." + col
 }
 
 // ValidDim reports whether a filter dimension exists.
@@ -77,7 +94,7 @@ func (q Query) where() (string, []any) {
 		var c string
 		var a []any
 		if col, ok := visitCols[f.Dim]; ok {
-			c, a = "v."+col+" = ?", []any{f.Value}
+			c, a = dimExpr(col)+" = ?", []any{f.Value}
 		} else {
 			switch f.Dim {
 			case "page":
@@ -278,6 +295,7 @@ type Row struct {
 // Dims a top list can be made of.
 var BreakdownDims = []string{"source", "channel", "referrer", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
 	"country", "region", "city", "device", "browser", "browser_version", "os", "os_version", "language", "hostname",
+	"network", "ip", "postal", "returning", "screen", "timezone",
 	"page", "entry", "exit", "event", "outbound", "download", "click", "contact", "form", "search", "notfound", "prop"}
 
 // propEvent names the events behind the link, click, form and search lists.
@@ -360,13 +378,15 @@ func (s *Store) Breakdown(ctx context.Context, q Query, dim, event, key string, 
 		return out, nil
 	}
 	w, a := q.visitRange()
-	sel, group := "v."+col+", ''", "v."+col
-	if dim == "region" || dim == "city" {
-		sel, group = "v."+col+", v.country", "v."+col+", v.country"
+	ex := dimExpr(col)
+	sel, group := ex+", ''", ex
+	if dim == "region" || dim == "city" || dim == "ip" || dim == "postal" {
+		sel, group = ex+", v.country", ex+", v.country"
 	}
 	empty := ""
-	if dim == "region" || dim == "city" || dim == "country" {
-		empty = " AND v." + col + " <> ''"
+	switch dim {
+	case "region", "city", "country", "network", "ip", "postal", "returning", "screen", "timezone":
+		empty = " AND " + ex + " <> ''"
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+sel+`, COUNT(DISTINCT v.visitor), COUNT(*), SUM(`+bounceExpr+`), SUM(v.last - v.started), SUM(v.pageviews)
 		FROM visits v WHERE `+w+empty+` GROUP BY `+group+` ORDER BY 3 DESC, 4 DESC, 1 LIMIT ? OFFSET ?`, append(a, limit, offset)...)
@@ -688,14 +708,20 @@ func (s *Store) LiveView(ctx context.Context, siteID, now int64) (*Live, error) 
 // ---- visits, one by one ----
 
 const visitCols2 = `v.id, v.site_id, v.started, v.last, v.hostname, v.entry, v.exit, v.pageviews, v.events, v.engaged, v.referrer, v.source, v.channel,
-	v.utm_source, v.utm_medium, v.utm_campaign, v.utm_content, v.utm_term, v.country, v.region, v.city, v.device, v.browser, v.browser_version, v.os, v.os_version, v.language`
+	v.utm_source, v.utm_medium, v.utm_campaign, v.utm_content, v.utm_term, v.country, v.region, v.city, v.device, v.browser, v.browser_version, v.os, v.os_version, v.language,
+	v.ip, v.network, v.asn, v.postal, v.lat, v.lon, v.client_id, v.agent, v.ref_url, v.details`
 
 func scanVisit(row interface{ Scan(...any) error }) (*Visit, error) {
 	var v Visit
+	var details string
 	err := row.Scan(&v.ID, &v.SiteID, &v.Started, &v.Last, &v.Hostname, &v.Entry, &v.Exit, &v.Pageviews, &v.Events, &v.Engaged, &v.Referrer, &v.Source, &v.Channel,
-		&v.UTMSource, &v.UTMMedium, &v.UTMCampaign, &v.UTMContent, &v.UTMTerm, &v.Country, &v.Region, &v.City, &v.Device, &v.Browser, &v.BrowserVersion, &v.OS, &v.OSVersion, &v.Language)
+		&v.UTMSource, &v.UTMMedium, &v.UTMCampaign, &v.UTMContent, &v.UTMTerm, &v.Country, &v.Region, &v.City, &v.Device, &v.Browser, &v.BrowserVersion, &v.OS, &v.OSVersion, &v.Language,
+		&v.IP, &v.Network, &v.ASN, &v.Postal, &v.Lat, &v.Lon, &v.ClientID, &v.Agent, &v.RefURL, &details)
 	if err != nil {
 		return nil, notFound(err)
+	}
+	if details != "" && json.Valid([]byte(details)) {
+		v.Details = json.RawMessage(details)
 	}
 	return &v, nil
 }

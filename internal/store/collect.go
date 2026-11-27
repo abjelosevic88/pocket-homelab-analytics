@@ -120,14 +120,26 @@ func (s *Store) SaveHits(ctx context.Context, batch []Incoming, cache VisitCache
 		if id == 0 {
 			v := in.Visit
 			res, err := tx.ExecContext(ctx, `INSERT INTO visits (site_id, visitor, started, last, hostname, entry, exit, referrer, source, channel,
-				utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, region, city, device, browser, browser_version, os, os_version, language)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, region, city, device, browser, browser_version, os, os_version, language,
+				ip, network, asn, postal, lat, lon, client_id, agent, ref_url, details)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				in.SiteID, in.Visitor, in.TS, in.TS, v.Hostname, in.Path, in.Path, v.Referrer, v.Source, v.Channel,
-				v.UTMSource, v.UTMMedium, v.UTMCampaign, v.UTMContent, v.UTMTerm, v.Country, v.Region, v.City, v.Device, v.Browser, v.BrowserVersion, v.OS, v.OSVersion, v.Language)
+				v.UTMSource, v.UTMMedium, v.UTMCampaign, v.UTMContent, v.UTMTerm, v.Country, v.Region, v.City, v.Device, v.Browser, v.BrowserVersion, v.OS, v.OSVersion, v.Language,
+				v.IP, v.Network, v.ASN, v.Postal, v.Lat, v.Lon, v.ClientID, v.Agent, v.RefURL, string(v.Details))
 			if err != nil {
 				return 0, err
 			}
 			id, _ = res.LastInsertId()
+		}
+		if in.Visit.ClientID != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE visits SET client_id = ? WHERE id = ? AND client_id = ''`, in.Visit.ClientID, id); err != nil {
+				return 0, err
+			}
+		}
+		if len(in.Visit.Details) > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE visits SET details = ? WHERE id = ? AND details = ''`, string(in.Visit.Details), id); err != nil {
+				return 0, err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO hits (site_id, visit_id, ts, name, path, props, revenue, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			in.SiteID, id, in.TS, in.Name, in.Path, in.Props, in.Revenue, in.Currency); err != nil {

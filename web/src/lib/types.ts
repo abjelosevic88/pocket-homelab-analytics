@@ -23,6 +23,7 @@ export type Settings = ConnFields & {
 export interface SiteOptions {
   outbound: boolean; downloads: boolean; clicks: boolean; forms: boolean; not_found: boolean; search: boolean; search_params: string[]; speed: boolean
   hash: boolean; localhost: boolean; exclude: string[]; ignore_ips: string[]; keep_days: number
+  identify?: boolean; forget_days?: number
   spike: boolean; quiet: boolean; weekly: boolean
 }
 
@@ -80,7 +81,13 @@ export interface Visit {
   id: number; site_id: number; started: number; last: number; hostname: string; entry: string; exit: string; pageviews: number; events: number; engaged: number
   referrer: string; source: string; channel: string; utm_source: string; utm_medium: string; utm_campaign: string; utm_content: string; utm_term: string
   country: string; region: string; city: string; device: string; browser: string; browser_version: string; os: string; os_version: string; language: string
+  // who it was: only on sites that know who visits
+  ip?: string; network?: string; asn?: number; postal?: string; lat?: number; lon?: number; client_id?: string; agent?: string; ref_url?: string
+  details?: Record<string, string | number | boolean>
 }
+/** Another visit by the same browser (its own ID) or from the same address. */
+export interface SameVisitor { id: number; started: number; last: number; entry: string; pageviews: number; engaged: number; source: string; city: string; country: string; browser: string; os: string; by: 'browser' | 'address' | 'both' }
+export interface VisitDetail { visit: Visit; hits: Hit[]; others?: SameVisitor[]; others_total?: number; first_seen?: number; host?: string }
 export interface Hit { id: number; visit_id: number; ts: number; name: string; path: string; props?: Record<string, string>; engaged: number; scroll: number; revenue?: number; currency?: string; lcp?: number; inp?: number; cls?: number }
 
 // ---- how people use the site (0.5.0) ----

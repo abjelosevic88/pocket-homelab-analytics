@@ -39,6 +39,8 @@ type SiteOptions struct {
 	Exclude      []string `json:"exclude"`       // paths not counted (* = any part)
 	IgnoreIPs    []string `json:"ignore_ips"`    // addresses not counted (an IP or a range like 203.0.113.0/24): your own
 	KeepDays     int      `json:"keep_days"`     // visits older than this are removed (0 = keep)
+	Identify     bool     `json:"identify"`      // know who visits: IP address, network, place on the map, the browser's own ID (returning visitors), screen and hardware
+	ForgetDays   int      `json:"forget_days"`   // with identify: who a visitor was is wiped after this many days, the visit stays (0 = keep)
 	Spike        bool     `json:"spike"`         // tell me when far more people than usual come
 	Quiet        bool     `json:"quiet"`         // tell me when nobody came for a day (tracking broken?)
 	Weekly       bool     `json:"weekly"`        // in the weekly report
@@ -137,6 +139,17 @@ type Visit struct {
 	OS             string `json:"os"`
 	OSVersion      string `json:"os_version"`
 	Language       string `json:"language"`
+	// who it was (sites with options.identify; empty otherwise)
+	IP       string          `json:"ip,omitempty"`
+	Network  string          `json:"network,omitempty"`
+	ASN      int64           `json:"asn,omitempty"`
+	Postal   string          `json:"postal,omitempty"`
+	Lat      *float64        `json:"lat,omitempty"`
+	Lon      *float64        `json:"lon,omitempty"`
+	ClientID string          `json:"client_id,omitempty"`
+	Agent    string          `json:"agent,omitempty"`
+	RefURL   string          `json:"ref_url,omitempty"`
+	Details  json.RawMessage `json:"details,omitempty"`
 }
 
 // Hit is a page seen or an event in a visit.

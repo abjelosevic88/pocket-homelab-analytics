@@ -377,3 +377,63 @@ func (s *Store) DeleteNote(ctx context.Context, uid, id int64) error {
 }
 
 var _ = sql.ErrNoRows
+
+// ForgetWho wipes who the visitors were (address, network, place on the
+// map, the browser's ID and details) on visits that started before the cut;
+// the visits and their pages stay.
+func (s *Store) ForgetWho(ctx context.Context, siteID, before int64) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, `UPDATE visits SET ip = '', network = '', asn = 0, postal = '', lat = NULL, lon = NULL, client_id = '', agent = '', ref_url = '', details = ''
+		WHERE site_id = ? AND started < ? AND (ip <> '' OR client_id <> '' OR details <> '' OR agent <> '')`, siteID, before)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// SameVisitor is another visit by the same browser (its own ID) or from the same address.
+type SameVisitor struct {
+	ID        int64  `json:"id"`
+	Started   int64  `json:"started"`
+	Entry     string `json:"entry"`
+	Pageviews int    `json:"pageviews"`
+	Engaged   int64  `json:"engaged"`
+	Last      int64  `json:"last"`
+	Source    string `json:"source"`
+	City      string `json:"city"`
+	Country   string `json:"country"`
+	Browser   string `json:"browser"`
+	OS        string `json:"os"`
+	By        string `json:"by"` // browser | address | both
+}
+
+// OtherVisits are a visit's other visits by the same browser or address
+// (newest first, up to limit), with how many there are in all and when the
+// first one was.
+func (s *Store) OtherVisits(ctx context.Context, siteID int64, v *Visit, limit int) ([]SameVisitor, int, int64, error) {
+	out := []SameVisitor{}
+	if v.ClientID == "" && v.IP == "" {
+		return out, 0, 0, nil
+	}
+	cond := `site_id = ? AND id <> ? AND ((? <> '' AND client_id = ?) OR (? <> '' AND ip = ?))`
+	args := []any{siteID, v.ID, v.ClientID, v.ClientID, v.IP, v.IP}
+	var total int
+	var first sql.NullInt64
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*), MIN(started) FROM visits WHERE `+cond, args...).Scan(&total, &first); err != nil {
+		return nil, 0, 0, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, started, last, entry, pageviews, engaged, source, city, country, browser, os,
+		CASE WHEN ? <> '' AND client_id = ? THEN CASE WHEN ? <> '' AND ip = ? THEN 'both' ELSE 'browser' END ELSE 'address' END
+		FROM visits WHERE `+cond+` ORDER BY started DESC LIMIT ?`, append(append([]any{v.ClientID, v.ClientID, v.IP, v.IP}, args...), limit)...)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o SameVisitor
+		if err := rows.Scan(&o.ID, &o.Started, &o.Last, &o.Entry, &o.Pageviews, &o.Engaged, &o.Source, &o.City, &o.Country, &o.Browser, &o.OS, &o.By); err != nil {
+			return nil, 0, 0, err
+		}
+		out = append(out, o)
+	}
+	return out, total, first.Int64, rows.Err()
+}

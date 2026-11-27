@@ -39,7 +39,7 @@ func (s *Server) publicSettings(ctx context.Context, u *store.User, st store.Set
 		"tz": zone(st).String(), "tz_set": st.TZ, "weekly_report": st.WeeklyReport, "report_email": st.ReportEmail, "report_to": st.ReportTo,
 		"ai_help": st.AIHelp, "notify_hour": st.NotifyHour, "push_phone": st.PushPhone,
 		"notify_url": st.NotifyURL, "notify_format": st.NotifyFormat, "notify_configured": st.NotifyURL != "",
-		"collect_url": s.collectFor(ctx), "public_url": s.cfg.PublicURL, "geo": s.geo.State(), "geo_kind": s.cfg.GeoDB,
+		"collect_url": s.collectFor(ctx), "public_url": s.cfg.PublicURL, "geo": s.geo.State(), "geo_kind": s.cfg.GeoDB, "networks": s.asn.State(),
 		"ai_provider": st.AIProvider, "ai_pocket_model": st.AIPocketModel, "openai_api_key": mask(st.OpenAIKey), "openai_model": st.OpenAIModel, "openai_base_url": st.OpenAIBaseURL,
 		"setup_complete": st.SetupComplete, "base_url": s.cfg.BaseURL, "demo": s.cfg.DemoData,
 		// the Google key itself never leaves the server: only whose it is
