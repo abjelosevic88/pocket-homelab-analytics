@@ -28,9 +28,11 @@ import (
 // site, the IP address and the browser with a salt that changes every day
 // and is then thrown away, and the IP address is not stored. A site that
 // switches on "Know who visits" (options.identify) also keeps the IP
-// address, who owns it, the place on the map, the browser's own random ID
-// (data-identify: localStorage, so returning visitors are known) and what
-// the browser says about itself (screen, hardware, time zone…).
+// address, who owns it, the place on the map and the screen, time zone and
+// languages (data-device) — unless the browser asks not to be tracked (GPC,
+// Do Not Track). Only with options.browser_id (behind a consent banner) does
+// the browser keep a random ID (data-identify: localStorage, returning
+// visitors) and tell its hardware.
 
 //go:embed tracker/script.js
 var trackerSource string
@@ -72,7 +74,8 @@ type eventIn struct {
 	Revenue  json.RawMessage `json:"$"`   // an event's money: { amount, currency }
 	Sections []string        `json:"sec"` // engagement: the page's parts that were on screen (data-pocket-section)
 	ID       string          `json:"id"`  // data-identify: the browser's own random ID
-	X        json.RawMessage `json:"x"`   // data-identify: what the browser says about itself (first page of a load)
+	X        json.RawMessage `json:"x"`   // data-device / data-identify: what the browser says about itself (first page of a load)
+	NoTrack  int             `json:"np"`  // the browser asks not to be tracked (Global Privacy Control, Do Not Track)
 }
 
 // vitalsIn is how fast the page was, as the script measured it: t = the
@@ -296,8 +299,8 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 				Country: place.Country, Region: clip(place.Region, 80), City: clip(place.City, 80),
 				Device: info.Device, Browser: info.Browser, BrowserVersion: info.BrowserVersion, OS: info.OS, OSVersion: info.OSVersion,
 				Language: language(r.Header.Get("Accept-Language"))}
-			if site.Options.Identify {
-				s.who(r, &hit.Visit, ip, place, agent, ref, in)
+			if site.Options.Identify && !asksNotToBeTracked(r, in) {
+				s.who(r, &hit.Visit, ip, place, agent, ref, in, site.Options.BrowserID)
 			}
 		}
 		if !s.enqueue(hit) {
@@ -556,7 +559,7 @@ type placeT struct {
 // who fills in who a new visit is: the address and who owns it, the place
 // on the map, the browser's own ID and what it says about itself, and what
 // the proxy in front saw of the connection (a Cloudflare Worker).
-func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, agent, ref string, in eventIn) {
+func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, agent, ref string, in eventIn, browserID bool) {
 	h := r.Header
 	proxied := h.Get("X-Pocket-Proxy-Key") != "" && h.Get("X-Pocket-Client-IP") != ""
 	addr, err := netip.ParseAddr(strings.Trim(ip, "[]"))
@@ -564,7 +567,9 @@ func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, a
 		v.IP = addr.Unmap().String()
 	}
 	v.Agent = clip(agent, 500)
-	v.ClientID = cleanClientID(in.ID)
+	if browserID {
+		v.ClientID = cleanClientID(in.ID)
+	}
 	if ref != "" {
 		v.RefURL = clip(ref, 800)
 	}
@@ -589,6 +594,14 @@ func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, a
 		}
 	}
 	d := cleanDetails(in.X)
+	if !browserID {
+		// without the visitor's consent: no hardware, nothing that tells one browser from another
+		for k := range d {
+			if !deviceFacts[k] {
+				delete(d, k)
+			}
+		}
+	}
 	if al := strings.TrimSpace(h.Get("Accept-Language")); al != "" {
 		d["accept_language"] = clip(al, 200)
 	}
@@ -600,16 +613,21 @@ func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, a
 			}
 		}
 	}
-	if dnt := h.Get("Dnt"); dnt == "1" {
-		d["dnt"] = true
-	}
-	if h.Get("Sec-Gpc") == "1" {
-		d["gpc"] = true
-	}
 	if len(d) > 0 {
 		v.Details = json.RawMessage(toJSONString(d))
 	}
 }
+
+// asksNotToBeTracked: Global Privacy Control or Do Not Track, from the
+// browser's headers (passed on by a proxy) or the script.
+func asksNotToBeTracked(r *http.Request, in eventIn) bool {
+	return in.NoTrack == 1 || r.Header.Get("Sec-Gpc") == "1" || r.Header.Get("Dnt") == "1"
+}
+
+// deviceFacts are what a site keeps of a browser without the visitor's
+// consent (data-device): the kind of screen and the visitor's settings.
+var deviceFacts = map[string]bool{"screen": true, "window": true, "dpr": true, "timezone": true, "utc_offset": true, "languages": true,
+	"touch": true, "dark": true, "reduced_motion": true, "net": true, "net_type": true, "save_data": true, "installed_app": true}
 
 // cleanClientID keeps a browser's ID when it looks like one (8–64 letters, digits, - or _).
 func cleanClientID(id string) string {

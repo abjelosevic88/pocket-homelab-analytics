@@ -86,8 +86,10 @@ func snippet(site *store.Site, script, api string) string {
 	if site.Options.Clicks {
 		attrs = append(attrs, "data-clicks")
 	}
-	if site.Options.Identify {
+	if site.Options.Identify && site.Options.BrowserID {
 		attrs = append(attrs, "data-identify")
+	} else if site.Options.Identify {
+		attrs = append(attrs, "data-device")
 	}
 	if !site.Options.Outbound {
 		attrs = append(attrs, "data-no-outbound")

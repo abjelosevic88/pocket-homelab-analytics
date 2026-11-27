@@ -210,7 +210,7 @@ function VisitSheet({ siteID, visitID, onOpen, onClose }: { siteID: number; visi
           <span title={v.ref_url || 'Where they came from'}><Icon name="link" size={13} />{v.source}{v.referrer ? ` (${v.referrer})` : ''}{v.utm_campaign ? ` · “${v.utm_campaign}”` : ''}</span>
           {v.ip && <button type="button" className="vt-chip-btn" title="Copy the IP address" onClick={() => copy(v.ip!)}><Icon name="server" size={13} /><span className="mono">{v.ip}</span></button>}
           {v.network && <span title={v.asn ? `AS${v.asn}` : undefined}><Icon name="layers" size={13} />{v.network}{isHosting(v.network) && <span className="badge warn">data centre / VPN</span>}</span>}
-          {(v.client_id || v.ip) && <span title={v.client_id ? 'Known by the ID their browser keeps' : 'Known by the IP address only'}><Icon name="user" size={13} />{n ? `${ORD(n + 1)} visit · first ${day(data.first_seen || v.started)}` : 'First visit'}</span>}
+          {(v.client_id || v.ip) && <span title={v.client_id ? 'Known by the ID their browser keeps' : 'Known by the IP address only: someone else at the same address looks the same'}><Icon name="user" size={13} />{n ? `${ORD(n + 1)} visit · first ${day(data.first_seen || v.started)}` : 'First visit'}</span>}
         </div>
         <VisitStory visit={v} hits={data.hits} />
         {known && <WhoDetails v={v} host={data.host} copy={copy} />}

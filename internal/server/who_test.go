@@ -25,8 +25,32 @@ func TestKnowWhoVisits(t *testing.T) {
 	}
 
 	up := a.ok(a.alice, "PUT", base, map[string]any{"options": map[string]any{"identify": true, "forget_days": 90}})
-	if !strings.Contains(str(up, "snippet"), "data-identify") {
+	if !strings.Contains(str(up, "snippet"), "data-device") || strings.Contains(str(up, "snippet"), "data-identify") {
 		t.Fatalf("snippet: %s", str(up, "snippet"))
+	}
+	// without the browser ID: the address, network and screen, no ID, no hardware
+	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/x", "d": "who.test", "id": "browser-9999", "x": map[string]any{"screen": "800×600", "gpu": "Apple M1", "cores": 8}}, "8.8.4.4", chromeUA, nil)
+	// a browser that asks not to be tracked: counted, nothing about the person
+	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/gpc", "d": "who.test", "np": 1, "x": map[string]any{"screen": "1×1"}}, "8.8.8.8", chromeUA, nil)
+	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/dnt", "d": "who.test"}, "8.8.8.9", chromeUA, map[string]string{"Sec-GPC": "1"})
+	a.s.waitFlushed()
+	for _, x := range a.ok(a.alice, "GET", base+"/visits", nil)["visits"].([]any) {
+		v := x.(map[string]any)
+		switch v["entry"] {
+		case "/x":
+			d, _ := v["details"].(map[string]any)
+			if v["ip"] != "8.8.4.4" || v["client_id"] != nil || d["screen"] != "800×600" || d["gpu"] != nil || d["cores"] != nil {
+				t.Fatalf("no browser ID: %v", v)
+			}
+		case "/gpc", "/dnt":
+			if v["ip"] != nil || v["details"] != nil {
+				t.Fatalf("asked not to be tracked: %v", v)
+			}
+		}
+	}
+	up = a.ok(a.alice, "PUT", base, map[string]any{"options": map[string]any{"browser_id": true}})
+	if !strings.Contains(str(up, "snippet"), "data-identify") {
+		t.Fatalf("snippet with the browser ID: %s", str(up, "snippet"))
 	}
 	a.expect(400, a.alice, "PUT", base, map[string]any{"options": map[string]any{"forget_days": -1}})
 
@@ -80,7 +104,7 @@ func TestKnowWhoVisits(t *testing.T) {
 		}
 	}
 	// forgetting: who they were goes, the visit stays
-	if n, err := a.s.store.ForgetWho(t.Context(), int64(up["id"].(float64)), 1<<40); err != nil || n != 2 {
+	if n, err := a.s.store.ForgetWho(t.Context(), int64(up["id"].(float64)), 1<<40); err != nil || n != 3 {
 		t.Fatalf("forget: %d %v", n, err)
 	}
 	v = a.ok(a.alice, "GET", base+"/visits/"+itoa(vid), nil)["visit"].(map[string]any)

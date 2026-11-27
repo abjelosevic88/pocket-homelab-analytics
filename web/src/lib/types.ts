@@ -23,7 +23,7 @@ export type Settings = ConnFields & {
 export interface SiteOptions {
   outbound: boolean; downloads: boolean; clicks: boolean; forms: boolean; not_found: boolean; search: boolean; search_params: string[]; speed: boolean
   hash: boolean; localhost: boolean; exclude: string[]; ignore_ips: string[]; keep_days: number
-  identify?: boolean; forget_days?: number
+  identify?: boolean; browser_id?: boolean; forget_days?: number
   spike: boolean; quiet: boolean; weekly: boolean
 }
 

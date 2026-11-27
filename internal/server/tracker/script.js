@@ -28,44 +28,50 @@
   } catch (e) {}
   var ignored = function () { try { return localStorage.getItem('pocket_ignore') === '1' } catch (e) { return false } }
 
-  // ---- data-identify: the site knows who visits. A random ID this browser
-  // keeps (returning visitors) and what the browser says about itself ----
+  // ---- what the browser says about itself. data-device: the screen, time
+  // zone, languages and the like, nothing kept in the browser. data-identify
+  // (only behind the visitor's consent): also a random ID this browser keeps
+  // (returning visitors) and the hardware. Neither when the browser asks not
+  // to be tracked (Global Privacy Control, Do Not Track) ----
+  var device = s.hasAttribute('data-device') || identify
+  var asked = !!(n.globalPrivacyControl || n.doNotTrack === '1' || w.doNotTrack === '1')
+  if (asked) { device = false; identify = false }
   var bid = ''
-  if (identify) {
-    try {
+  try {
+    if (identify) {
       bid = localStorage.getItem('pocket_id') || ''
       if (!/^[\w-]{8,64}$/.test(bid)) {
         var r = new Uint8Array(12); (w.crypto || w.msCrypto).getRandomValues(r)
         bid = Array.prototype.map.call(r, function (b) { return ('0' + b.toString(16)).slice(-2) }).join('')
         localStorage.setItem('pocket_id', bid)
       }
-    } catch (e) { bid = '' }
-  }
+    } else if (localStorage.getItem('pocket_id')) localStorage.removeItem('pocket_id')
+  } catch (e) { bid = '' }
   function about() {
     var x = {}, sc = w.screen || {}, c = n.connection || n.mozConnection || n.webkitConnection, mq = function (q) { try { return w.matchMedia(q).matches } catch (e) { return false } }
     try {
       x.screen = sc.width + '×' + sc.height
       x.window = (w.innerWidth || 0) + '×' + (w.innerHeight || 0)
       x.dpr = Math.round((w.devicePixelRatio || 1) * 100) / 100
-      x.colors = sc.colorDepth
       x.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       x.utc_offset = -new Date().getTimezoneOffset()
       x.languages = n.languages ? [].slice.call(n.languages, 0, 10) : n.language
-      x.platform = n.platform
-      x.cores = n.hardwareConcurrency
-      if (n.deviceMemory) x.memory_gb = n.deviceMemory
       x.touch = n.maxTouchPoints || 0
       x.dark = mq('(prefers-color-scheme: dark)')
       if (mq('(prefers-reduced-motion: reduce)')) x.reduced_motion = true
-      if (mq('(pointer: coarse)')) x.coarse_pointer = true
-      x.cookies = !!n.cookieEnabled
-      if (n.globalPrivacyControl) x.gpc = true
-      if (n.doNotTrack === '1') x.dnt = true
-      if (n.pdfViewerEnabled) x.pdf_viewer = true
-      if (c) { x.net = c.effectiveType; if (c.type) x.net_type = c.type; if (c.downlink) x.downlink_mbps = c.downlink; if (c.rtt) x.rtt_ms = c.rtt; if (c.saveData) x.save_data = true }
-      if (w.matchMedia && mq('(display-mode: standalone)')) x.installed_app = true
+      if (c) { x.net = c.effectiveType; if (c.type) x.net_type = c.type; if (c.saveData) x.save_data = true }
+      if (mq('(display-mode: standalone)')) x.installed_app = true
     } catch (e) {}
+    if (!identify) return x
     try {
+      x.colors = sc.colorDepth
+      x.platform = n.platform
+      x.cores = n.hardwareConcurrency
+      if (n.deviceMemory) x.memory_gb = n.deviceMemory
+      if (c && c.downlink) x.downlink_mbps = c.downlink
+      if (c && c.rtt) x.rtt_ms = c.rtt
+      x.cookies = !!n.cookieEnabled
+      if (n.pdfViewerEnabled) x.pdf_viewer = true
       var cv = d.createElement('canvas'), gl = cv.getContext('webgl') || cv.getContext('experimental-webgl')
       var ext = gl && gl.getExtension('WEBGL_debug_renderer_info')
       if (ext) { x.gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL); x.gpu_vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) }
@@ -75,7 +81,7 @@
   // Chrome, Edge and others say more when asked: the real system version, the phone's model
   function aboutMore(x, done) {
     var ua = n.userAgentData
-    if (!ua || !ua.getHighEntropyValues) { done(x); return }
+    if (!identify || !ua || !ua.getHighEntropyValues) { done(x); return }
     var t = setTimeout(function () { done(x); done = function () {} }, 300)
     ua.getHighEntropyValues(['model', 'platformVersion', 'architecture', 'bitness', 'fullVersionList']).then(function (h) {
       if (h.model) x.model = h.model
@@ -98,6 +104,7 @@
     if (name === 'engagement') { p.e = opts.e; p.sd = opts.sd; if (opts.v) p.v = opts.v; if (opts.sec && opts.sec.length) p.sec = opts.sec }
     if (opts.rev) p.$ = opts.rev
     if (bid && name !== 'engagement') p.id = bid
+    if (asked) p.np = 1
     if (opts.x) p.x = opts.x
     var body = JSON.stringify(p)
     try {
@@ -231,7 +238,7 @@
     secOrder = []; secSeen = {}; secSent = 0; secCount = 0
     setTimeout(function () { onScroll(); watchSections() }, 300)
     var r = first ? d.referrer || null : null, was = first
-    if (identify && first) aboutMore(about(), function (x) { send('pageview', { r: r, x: x }); if (missing && notFound()) send('404', { props: { from: cameFrom() } }) })
+    if (device && first) aboutMore(about(), function (x) { send('pageview', { r: r, x: x }); if (missing && notFound()) send('404', { props: { from: cameFrom() } }) })
     else {
       send('pageview', { r: r })
       if (was && missing && notFound()) send('404', { props: { from: cameFrom() } })

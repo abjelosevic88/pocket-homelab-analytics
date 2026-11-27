@@ -39,7 +39,8 @@ type SiteOptions struct {
 	Exclude      []string `json:"exclude"`       // paths not counted (* = any part)
 	IgnoreIPs    []string `json:"ignore_ips"`    // addresses not counted (an IP or a range like 203.0.113.0/24): your own
 	KeepDays     int      `json:"keep_days"`     // visits older than this are removed (0 = keep)
-	Identify     bool     `json:"identify"`      // know who visits: IP address, network, place on the map, the browser's own ID (returning visitors), screen and hardware
+	Identify     bool     `json:"identify"`      // know who visits: IP address, network, place on the map, screen and settings (server side, no ID in the browser)
+	BrowserID    bool     `json:"browser_id"`    // with identify: a random ID the browser keeps (returning visitors) and its hardware — needs the visitor's consent (a banner)
 	ForgetDays   int      `json:"forget_days"`   // with identify: who a visitor was is wiped after this many days, the visit stays (0 = keep)
 	Spike        bool     `json:"spike"`         // tell me when far more people than usual come
 	Quiet        bool     `json:"quiet"`         // tell me when nobody came for a day (tracking broken?)
