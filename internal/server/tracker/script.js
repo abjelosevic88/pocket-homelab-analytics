@@ -16,7 +16,10 @@
   var speed = !s.hasAttribute('data-no-speed')
   var missing = !s.hasAttribute('data-no-404')
   var identify = s.hasAttribute('data-identify')
-  var exts = (attr('data-file-types') || 'pdf,zip,dmg,pkg,exe,msi,iso,img,apk,deb,rpm,gz,tgz,7z,rar,csv,xls,xlsx,doc,docx,ppt,pptx,epub,mp3,mp4,mov,txt,json').split(',')
+  // data-file-types="pdf,zip" replaces the list; "+env,yml" adds to it
+  var defaultExts = 'pdf,zip,dmg,pkg,exe,msi,iso,img,apk,deb,rpm,gz,tgz,7z,rar,csv,xls,xlsx,doc,docx,ppt,pptx,epub,mp3,mp4,mov,txt,json'
+  var fileTypes = (attr('data-file-types') || '').replace(/\s+/g, '')
+  var exts = (fileTypes.charAt(0) === '+' ? defaultExts + ',' + fileTypes.slice(1) : fileTypes || defaultExts).toLowerCase().split(',')
 
   // "Don't count me": ?pocket_ignore=1 once, in this browser
   try {
@@ -305,7 +308,8 @@
       try { u = new URL(href, l.href) } catch (x) { u = null }
       if (u && /^https?:$/.test(u.protocol)) {
         var ext = (u.pathname.split('.').pop() || '').toLowerCase()
-        if (downloads && u.pathname.indexOf('.') > 0 && exts.indexOf(ext) >= 0) send('File Download', { props: { url: u.origin + u.pathname } })
+        // a link marked download is a file whatever its ending
+        if (downloads && (el.hasAttribute('download') || (u.pathname.indexOf('.') > 0 && exts.indexOf(ext) >= 0))) send('File Download', { props: { url: u.origin + u.pathname } })
         else if (outbound && u.host !== l.host) send('Outbound Link: Click', { props: { url: u.origin + u.pathname } })
       }
     }

@@ -54,6 +54,10 @@ func TestRobots(t *testing.T) {
 	if r := a.hit(map[string]any{"n": "pageview", "u": "https://shop.test/about", "d": "shop.test"}, "9.9.9.9", googleBot, nil); r != "robot" {
 		t.Fatalf("a robot through the script: %s", r)
 	}
+	// the same read reported by the site's server and then by the script is counted once
+	if r := a.hit(map[string]any{"n": "pageview", "u": "https://shop.test/", "d": "shop.test"}, "9.9.9.9", gptBot, nil); r != "robot" {
+		t.Fatalf("a reported robot through the script: %s", r)
+	}
 	a.s.waitFlushed()
 
 	who := a.ok(a.alice, "GET", base+"/robots?range=today", nil)

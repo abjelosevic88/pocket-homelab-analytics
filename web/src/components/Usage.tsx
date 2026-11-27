@@ -213,9 +213,9 @@ export function Searches({ site }: { site: Site }) {
       : <div className="rows">
         <div className="rows-h"><span>Searched for</span>{counts && <span className="num" title="Results found (the fewest, when searched more than once)">Results</span>}<span className="num">People</span></div>
         {data.rows.map(r => (
-          <div key={r.term} className="rrow static" title={`${r.times} ${r.times === 1 ? 'time' : 'times'}${r.where ? ` · ${r.where}` : ''}`}>
+          <div key={`${r.term}\u0000${r.where || ''}`} className="rrow static" title={`${r.times} ${r.times === 1 ? 'time' : 'times'}${r.where ? ` · ${r.where}` : ''}`}>
             <span className="rbar" style={{ width: `${(r.visitors / max) * 100}%` }} />
-            <span className="rlabel ellipsis">{r.term}</span>
+            <span className="rlabel ellipsis">{r.term}{r.where && <span className="muted small"> · {r.where}</span>}</span>
             {counts && <span className={`num tnum ${r.results === 0 ? 'us-bad' : 'muted'}`}>{r.results === null ? '—' : r.results === 0 ? 'none' : fmtNum(r.results)}</span>}
             <span className="num tnum">{fmtNum(r.visitors)}</span>
           </div>

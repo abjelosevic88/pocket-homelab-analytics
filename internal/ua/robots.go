@@ -46,6 +46,11 @@ var robotRules = []robotRule{
 	rr(`cohere-ai|cohere-training`, "Cohere", RobotAI),
 	rr(`YouBot`, "You.com", RobotAI),
 	rr(`Diffbot`, "Diffbot", RobotAI),
+	rr(`KeenableBot`, "Keenable", RobotAI),
+	rr(`ElevenlabsCrawler`, "ElevenLabs", RobotAI),
+	rr(`ExaSearchBot|ExaBot`, "Exa", RobotAI),
+	rr(`Reflectionbot`, "Reflection AI", RobotAI),
+	rr(`AgentTrustBot`, "AgentTrust", RobotAI),
 	rr(`AI2Bot|Timpibot|ImagesiftBot|Omgili|PanguBot|Kangaroo Bot|ICC-Crawler|img2dataset|FirecrawlAgent|Crawl4AI|Brightbot|iaskspider|DeepSeekBot|xAI-Bot|GrokBot`, "Other AI crawlers", RobotAI),
 
 	// link previews: iMessage says it is both Facebook and Twitter
@@ -81,6 +86,8 @@ var robotRules = []robotRule{
 	rr(`kagibot|Kagi-`, "Kagi", RobotSearch),
 	rr(`Bravebot`, "Brave", RobotSearch),
 	rr(`PetalBot`, "Petal (Huawei)", RobotSearch),
+	rr(`360Spider`, "360 Search", RobotSearch),
+	rr(`HuaweiCrawler`, "Huawei", RobotSearch),
 	rr(`ia_archiver|archive\.org_bot`, "Internet Archive", RobotSearch),
 
 	// SEO tools
@@ -88,6 +95,7 @@ var robotRules = []robotRule{
 	rr(`SemrushBot|SiteAuditBot|SplitSignalBot`, "Semrush", RobotSEO),
 	rr(`MJ12bot`, "Majestic", RobotSEO),
 	rr(`DotBot|rogerbot`, "Moz", RobotSEO),
+	rr(`SERankingBacklinksBot|SERanking`, "SE Ranking", RobotSEO),
 	rr(`DataForSeoBot|SerpstatBot|BLEXBot|Screaming Frog|SEOkicks|Barkrowler|serpapi|SISTRIX|linkdexbot|seobility|Seekport`, "Other SEO tools", RobotSEO),
 
 	// uptime and speed checks
@@ -100,6 +108,7 @@ var robotRules = []robotRule{
 
 	// the rest, by what they are
 	rr(`Feedly|FreshRSS|Miniflux|NetNewsWire|Feedbin|Inoreader|NewsBlur|Tiny Tiny RSS|feedfetcher|\brss\b|feedparser|FeedBurner`, "Feed readers", RobotOther),
+	rr(`ShapBot`, "ShapBot", RobotOther),
 	rr(`headless|phantom|puppeteer|playwright|selenium|cypress`, "Automated browsers", RobotOther),
 	rr(`curl/|wget/|python-|aiohttp|httpx|go-http|java/|okhttp|axios|node-fetch|undici|httpclient|libwww|Scrapy|Ruby/|PHP/|Faraday|Guzzle|Postman|insomnia`, "Scripts and tools", RobotOther),
 }

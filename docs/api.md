@@ -27,7 +27,7 @@ email or phone, `to`), `Form: Submission` (`form`), `404` (`from`: the page with
 A page view whose address holds search words (`?q=…`, the site's search names) also counts a `Search` event (`term`).
 
 Script attributes: `data-domain`, `data-api` (where to send), `data-hash`, `data-clicks` (every link and button),
-`data-no-outbound`, `data-no-downloads`, `data-no-forms`, `data-no-404`, `data-no-speed`, `data-file-types="pdf,zip"`.
+`data-no-outbound`, `data-no-downloads`, `data-no-forms`, `data-no-404`, `data-no-speed`, `data-file-types="pdf,zip"` (replaces the list of file endings counted as downloads; `data-file-types="+env,yml"` adds to it). A link with the `download` attribute is always a download.
 Events: `window.pocket('Name', { props: {…}, revenue: { amount: 24.5, currency: 'EUR' } })`
 (also `window.plausible`), or `data-pocket-event="Name"` + `data-pocket-prop-<key>="value"` on an element, or
 Plausible's `class="plausible-event-name=Name"`. `?pocket_ignore=1` on any page stops counting that browser.

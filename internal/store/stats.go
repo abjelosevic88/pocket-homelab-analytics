@@ -495,7 +495,7 @@ type StepCount struct {
 	Dropped  int     `json:"dropped"`         // left after the step before
 	Rate     float64 `json:"rate"`            // percent of the first step
 	Next     float64 `json:"next"`            // percent of the step before
-	Robot    bool    `json:"robot,omitempty"` // a robot step: Visitors = times read, not people
+	Robot    bool    `json:"robot,omitempty"` // a robot step: Visitors = times read, not people; Dropped, Rate and Next stay 0
 }
 
 // FunnelCounts walks each visit's hits in order through the steps.
@@ -518,17 +518,10 @@ func (s *Store) FunnelCounts(ctx context.Context, q Query, steps []Step) ([]Step
 		if err != nil {
 			return nil, err
 		}
+		// a fetch is not a person and not part of anyone's visit (links on
+		// GitHub, the docs and repeat runs fetch it too), so it is shown as
+		// a count on its own: no share of the step before, nobody "left"
 		rs := StepCount{Step: last, Visitors: n, Robot: true}
-		if k := len(head); k > 0 {
-			prev := head[k-1].Visitors
-			rs.Dropped = max(prev-n, 0)
-			if prev > 0 {
-				rs.Next = round1(float64(n) * 100 / float64(prev))
-			}
-			if head[0].Visitors > 0 {
-				rs.Rate = round1(float64(n) * 100 / float64(head[0].Visitors))
-			}
-		}
 		return append(head, rs), nil
 	}
 	var conds []string

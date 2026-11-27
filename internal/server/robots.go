@@ -79,6 +79,46 @@ func (s *Server) sawRobot(site *store.Site, agent string, page *url.URL) bool {
 	return true
 }
 
+// servedFor is how long a read the site's own server reported stands for the
+// pageview the same robot's script sends after it.
+const servedFor = 15 * 60
+
+func servedKey(site *store.Site, agent string, page *url.URL) agentKey {
+	return agentKey{site: site.ID, agent: clip(strings.TrimSpace(agent), 300) + "\x00" + cleanPath(page)}
+}
+
+// noteServed remembers that the site's server reported this read.
+func (s *Server) noteServed(site *store.Site, agent string, page *url.URL) {
+	now := time.Now().Unix()
+	s.robotMu.Lock()
+	defer s.robotMu.Unlock()
+	if len(s.served) >= 20000 {
+		for k, t := range s.served {
+			if now-t > servedFor {
+				delete(s.served, k)
+			}
+		}
+		if len(s.served) >= 20000 {
+			return
+		}
+	}
+	s.served[servedKey(site, agent, page)] = now
+}
+
+// wasServed says whether the site's server already reported this read (and
+// uses it up: one reported read stands for one pageview).
+func (s *Server) wasServed(site *store.Site, agent string, page *url.URL) bool {
+	k := servedKey(site, agent, page)
+	s.robotMu.Lock()
+	defer s.robotMu.Unlock()
+	t, ok := s.served[k]
+	if !ok {
+		return false
+	}
+	delete(s.served, k)
+	return time.Now().Unix()-t <= servedFor
+}
+
 // flushRobots writes what was noted since the last time.
 func (s *Server) flushRobots(ctx context.Context) {
 	s.robotMu.Lock()
@@ -148,6 +188,7 @@ func (s *Server) robotHit(r *http.Request, domain, address, agent string) string
 	if !s.sawRobot(site, agent, page) {
 		return "a person"
 	}
+	s.noteServed(site, agent, page)
 	return "ok"
 }
 

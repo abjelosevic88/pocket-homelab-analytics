@@ -465,7 +465,8 @@ type SearchRow struct {
 	Where    string `json:"where,omitempty"`
 }
 
-// Searches lists what people searched for; empty = only the searches that found nothing.
+// Searches lists what people searched for, one row per words and search box
+// (where); empty = only the searches that found nothing.
 func (s *Store) Searches(ctx context.Context, q Query, empty bool, limit int) ([]SearchRow, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 20
@@ -480,8 +481,8 @@ func (s *Store) Searches(ctx context.Context, q Query, empty bool, limit int) ([
 		return nil, 0, err
 	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT COALESCE(NULLIF(json_extract(h.props, '$.term'), ''), '(none)'), COUNT(DISTINCT v.visitor), COUNT(*),
-		MIN(CAST(json_extract(h.props, '$.results') AS INTEGER)), COALESCE(MAX(json_extract(h.props, '$.where')), '')
-		FROM hits h JOIN visits v ON v.id = h.visit_id WHERE h.name = 'Search'`+cond+` AND `+hw+` GROUP BY 1 ORDER BY 2 DESC, 3 DESC, 1 LIMIT ?`, append(ha, limit)...)
+		MIN(CAST(json_extract(h.props, '$.results') AS INTEGER)), COALESCE(json_extract(h.props, '$.where'), '')
+		FROM hits h JOIN visits v ON v.id = h.visit_id WHERE h.name = 'Search'`+cond+` AND `+hw+` GROUP BY 1, 5 ORDER BY 2 DESC, 3 DESC, 1 LIMIT ?`, append(ha, limit)...)
 	if err != nil {
 		return nil, 0, err
 	}

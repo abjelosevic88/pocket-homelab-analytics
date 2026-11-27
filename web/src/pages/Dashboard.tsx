@@ -430,8 +430,8 @@ function Funnels({ site }: { site: Site }) {
           {steps.map((s, i) => (
             <div key={i} className="fstep">
               <div className="fstep-top"><span className="fstep-n">{i + 1}</span><span className="ellipsis">{s.step.label || s.step.match}</span><span className="num tnum">{fmtNum(s.visitors)}</span></div>
-              <div className="fstep-bar"><span style={{ width: `${steps[0].visitors ? (s.visitors / steps[0].visitors) * 100 : 0}%` }} /></div>
-              <div className="fstep-foot muted small">{i === 0 ? 'started' : s.robot ? <>times read by {s.step.robot || 'robots'} · {s.next.toFixed(0)}% of the step before (robots are not tied to a visit, so this is a ratio, not people)</> : <>{s.next.toFixed(0)}% went on · {fmtNum(s.dropped)} left here · {s.rate.toFixed(1)}% of all who started</>}</div>
+              {!s.robot && <div className="fstep-bar"><span style={{ width: `${steps[0].visitors ? (s.visitors / steps[0].visitors) * 100 : 0}%` }} /></div>}
+              <div className="fstep-foot muted small">{i === 0 ? 'started' : s.robot ? <>times fetched by {s.step.robot || 'robots'}, counted on their own: a fetch is not a person and not part of anyone's visit, so it is not a share of the step before</> : <>{s.next.toFixed(0)}% went on · {fmtNum(s.dropped)} left here · {s.rate.toFixed(1)}% of all who started</>}</div>
             </div>
           ))}
         </div>}

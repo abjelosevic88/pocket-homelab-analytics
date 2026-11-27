@@ -215,7 +215,8 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 		// a robot that runs the script is never a visitor; it is counted with the robots
 		if err == nil && page.Host != "" && strings.EqualFold(strings.TrimSpace(in.Name), "pageview") {
 			for _, d := range strings.Split(in.Domain, ",") {
-				if st := s.siteFor(ctx, strings.TrimSpace(d)); st != nil && s.ownHost(st, page.Hostname()) {
+				// counted once: a read the site's server already reported is not counted again
+				if st := s.siteFor(ctx, strings.TrimSpace(d)); st != nil && s.ownHost(st, page.Hostname()) && !s.wasServed(st, agent, page) {
 					s.sawRobot(st, agent, page)
 				}
 			}

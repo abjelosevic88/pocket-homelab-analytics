@@ -94,7 +94,7 @@ func TestHowPeopleUseTheSite(t *testing.T) {
 		t.Fatalf("robot goal: %v", last)
 	}
 	steps := a.ok(a.alice, "GET", base+"/funnels/"+id(fn)+"/counts?range=today", nil)["steps"].([]any)
-	if s1 := steps[1].(map[string]any); num(steps[0].(map[string]any), "visitors") != 2 || num(s1, "visitors") != 2 || s1["robot"] != true || num(s1, "next") != 100 {
+	if s1 := steps[1].(map[string]any); num(steps[0].(map[string]any), "visitors") != 2 || num(s1, "visitors") != 2 || s1["robot"] != true || num(s1, "next") != 0 || num(s1, "rate") != 0 || num(s1, "dropped") != 0 {
 		t.Fatalf("funnel with a robot step: %v", steps)
 	}
 
