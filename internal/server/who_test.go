@@ -3,13 +3,16 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"github.com/abjelosevic88/pocket-homelab-analytics/internal/config"
 )
 
 // 0.9.0: a site that knows who visits keeps the address, who owns it, the
 // place on the map, the browser's own ID (returning visitors) and what the
 // browser says about itself; other sites keep none of it.
 func TestKnowWhoVisits(t *testing.T) {
-	a := demoApp(t)
+	a := newApp(t, func(c *config.Config) { c.TrustProxy = true }) // the test's X-Forwarded-For is the visitor
+	a.s.cfg.DemoData = true
 	site := a.ok(a.alice, "POST", "/api/v1/sites", map[string]any{"domain": "who.test"})
 	sid, key := id(site), str(site, "proxy_key")
 	base := "/api/v1/sites/" + sid
@@ -25,21 +28,23 @@ func TestKnowWhoVisits(t *testing.T) {
 	}
 
 	up := a.ok(a.alice, "PUT", base, map[string]any{"options": map[string]any{"identify": true, "forget_days": 90}})
-	if !strings.Contains(str(up, "snippet"), "data-device") || strings.Contains(str(up, "snippet"), "data-identify") {
+	if strings.Contains(str(up, "snippet"), "data-device") || strings.Contains(str(up, "snippet"), "data-identify") {
 		t.Fatalf("snippet: %s", str(up, "snippet"))
 	}
-	// without the browser ID: the address, network and screen, no ID, no hardware
+	// without the browser ID: the address and network, nothing the browser says about itself
 	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/x", "d": "who.test", "id": "browser-9999", "x": map[string]any{"screen": "800×600", "gpu": "Apple M1", "cores": 8}}, "8.8.4.4", chromeUA, nil)
 	// a browser that asks not to be tracked: counted, nothing about the person
 	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/gpc", "d": "who.test", "np": 1, "x": map[string]any{"screen": "1×1"}}, "8.8.8.8", chromeUA, nil)
 	a.hit(map[string]any{"n": "pageview", "u": "https://who.test/dnt", "d": "who.test"}, "8.8.8.9", chromeUA, map[string]string{"Sec-GPC": "1"})
 	a.s.waitFlushed()
+	seen := map[string]bool{}
 	for _, x := range a.ok(a.alice, "GET", base+"/visits", nil)["visits"].([]any) {
 		v := x.(map[string]any)
+		seen[v["entry"].(string)] = true
 		switch v["entry"] {
 		case "/x":
 			d, _ := v["details"].(map[string]any)
-			if v["ip"] != "8.8.4.4" || v["client_id"] != nil || d["screen"] != "800×600" || d["gpu"] != nil || d["cores"] != nil {
+			if v["ip"] != "8.8.4.4" || v["client_id"] != nil || d["screen"] != nil || d["gpu"] != nil || d["cores"] != nil {
 				t.Fatalf("no browser ID: %v", v)
 			}
 		case "/gpc", "/dnt":
@@ -47,6 +52,9 @@ func TestKnowWhoVisits(t *testing.T) {
 				t.Fatalf("asked not to be tracked: %v", v)
 			}
 		}
+	}
+	if !seen["/x"] || !seen["/gpc"] || !seen["/dnt"] {
+		t.Fatalf("visits: %v", seen)
 	}
 	up = a.ok(a.alice, "PUT", base, map[string]any{"options": map[string]any{"browser_id": true}})
 	if !strings.Contains(str(up, "snippet"), "data-identify") {

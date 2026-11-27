@@ -192,12 +192,12 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
         <CopyField value={site.ignore_url} label="The link that stops counting a browser" />
       </Field>
     </Section>
-    <Section title="Know who visits" sub="Keeps each visitor's IP address, who owns it (an internet provider, a company, a data centre), roughly where on the map, and their screen, time zone and languages. Nothing is kept in their browser, and browsers that ask not to be tracked (Global Privacy Control, Do Not Track) are only counted.">
-      <SettingRow title="Know who visits" help="Copy the line on your pages again after switching this on. The IP address is personal data: say in your privacy notice what you keep and for how long."><Switch checked={!!o.identify} onChange={v => set({ identify: v })} /></SettingRow>
+    <Section title="Know who visits" sub="Keeps what reaches your server anyway: each visitor's IP address, who owns it (an internet provider, a company, a data centre), roughly where on the map, and their whole browser line. Nothing is read from or kept in their browser, and browsers that ask not to be tracked (Global Privacy Control, Do Not Track) are only counted.">
+      <SettingRow title="Know who visits" help="The line on your pages stays as it is. The IP address is personal data: say in your privacy notice what you keep and for how long."><Switch checked={!!o.identify} onChange={v => set({ identify: v })} /></SettingRow>
       {o.identify && <SettingRow title="Forget who they were after" help="The visits and their pages stay; the address, network, map place and details are wiped.">
         <Select value={String(o.forget_days || 0)} onChange={v => set({ forget_days: Number(v) })} options={[{ value: '0', label: 'Never' }, { value: '30', label: '30 days' }, { value: '90', label: '90 days' }, { value: '180', label: '6 months' }, { value: '365', label: '1 year' }]} />
       </SettingRow>}
-      {o.identify && <SettingRow title="Browser ID and hardware" help="The browser keeps a random ID, so the same person is known on another day and from another address, and tells its hardware (graphics chip, memory). In the EU and UK this needs the visitor's consent first: switch it on only behind a consent banner. Copy the line again after changing it."><Switch checked={!!o.browser_id} onChange={v => set({ browser_id: v })} /></SettingRow>}
+      {o.identify && <SettingRow title="Browser ID and device details" help="The browser keeps a random ID, so the same person is known on another day and from another address, and tells its screen, time zone, languages and hardware (graphics chip, memory). In the EU and UK this needs the visitor's consent first: switch it on only behind a consent banner. Copy the line again after changing it."><Switch checked={!!o.browser_id} onChange={v => set({ browser_id: v })} /></SettingRow>}
     </Section>
     <Section title="What people press">
       <SettingRow title="Links to other sites" help="Which links people follow away from your site, and which email addresses and phone numbers they press."><Switch checked={o.outbound} onChange={v => set({ outbound: v })} /></SettingRow>
@@ -218,7 +218,7 @@ function Counting({ site, onSaved }: { site: Site; onSaved: (s: Site) => void })
         <textarea rows={3} value={exclude} onChange={e => setExclude(e.target.value)} onBlur={() => { if (exclude !== o.exclude.join('\n')) set({ exclude: exclude.split('\n').map(x => x.trim()).filter(Boolean) }) }} placeholder="/admin*" />
       </Field>
     </Section>
-    <Section title="The line on your pages" sub="Everything above works with the line you already have. Copy it again only after changing “Know who visits”, “Browser ID and hardware”, “Every link and button” or “Pages by #”.">
+    <Section title="The line on your pages" sub="Everything above works with the line you already have. Copy it again only after changing “Know who visits”, “Browser ID and device details”, “Every link and button” or “Pages by #”.">
       <Snippet site={site} />
     </Section>
   </>

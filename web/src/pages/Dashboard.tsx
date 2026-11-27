@@ -116,7 +116,7 @@ export default function Dashboard() {
           { dim: 'device', label: 'Devices' }, { dim: 'browser', label: 'Browsers' }, { dim: 'os', label: 'Systems' },
         ]} />
         {site.options.identify && <Panel site={site} title="Who they are" icon="users" tabs={[
-          { dim: 'network', label: 'Networks' }, { dim: 'ip', label: 'Addresses' }, { dim: 'returning', label: 'New or back' }, { dim: 'screen', label: 'Screens' }, { dim: 'timezone', label: 'Time zones' },
+          { dim: 'network', label: 'Networks' }, { dim: 'ip', label: 'Addresses' }, { dim: 'returning', label: 'New or back' }, ...(site.options.browser_id ? [{ dim: 'screen', label: 'Screens' }, { dim: 'timezone', label: 'Time zones' }] : []),
         ]} />}
         <Goals site={site} />
         {onEvent ? <EventDetails site={site} event={onEvent} /> : <Panel site={site} title="What they did" icon="zap" tabs={[

@@ -27,12 +27,13 @@ import (
 // By default nothing identifies a person: the visitor is a hash of the
 // site, the IP address and the browser with a salt that changes every day
 // and is then thrown away, and the IP address is not stored. A site that
-// switches on "Know who visits" (options.identify) also keeps the IP
-// address, who owns it, the place on the map and the screen, time zone and
-// languages (data-device) — unless the browser asks not to be tracked (GPC,
-// Do Not Track). Only with options.browser_id (behind a consent banner) does
-// the browser keep a random ID (data-identify: localStorage, returning
-// visitors) and tell its hardware.
+// switches on "Know who visits" (options.identify) also keeps what reaches
+// the server anyway: the IP address, who owns it, the place on the map, the
+// whole User-Agent, referrer and Accept-Language — unless the browser asks
+// not to be tracked (GPC, Do Not Track). Nothing is read from the browser.
+// Only with options.browser_id (behind a consent banner) does the browser
+// keep a random ID (data-identify: localStorage, returning visitors) and
+// tell its screen, settings and hardware.
 
 //go:embed tracker/script.js
 var trackerSource string
@@ -595,12 +596,9 @@ func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, a
 	}
 	d := cleanDetails(in.X)
 	if !browserID {
-		// without the visitor's consent: no hardware, nothing that tells one browser from another
-		for k := range d {
-			if !deviceFacts[k] {
-				delete(d, k)
-			}
-		}
+		// without the visitor's consent nothing is read from the browser:
+		// only what reaches the server anyway is kept
+		clear(d)
 	}
 	if al := strings.TrimSpace(h.Get("Accept-Language")); al != "" {
 		d["accept_language"] = clip(al, 200)
@@ -623,11 +621,6 @@ func (s *Server) who(r *http.Request, v *store.Visit, ip string, place placeT, a
 func asksNotToBeTracked(r *http.Request, in eventIn) bool {
 	return in.NoTrack == 1 || r.Header.Get("Sec-Gpc") == "1" || r.Header.Get("Dnt") == "1"
 }
-
-// deviceFacts are what a site keeps of a browser without the visitor's
-// consent (data-device): the kind of screen and the visitor's settings.
-var deviceFacts = map[string]bool{"screen": true, "window": true, "dpr": true, "timezone": true, "utc_offset": true, "languages": true,
-	"touch": true, "dark": true, "reduced_motion": true, "net": true, "net_type": true, "save_data": true, "installed_app": true}
 
 // cleanClientID keeps a browser's ID when it looks like one (8–64 letters, digits, - or _).
 func cleanClientID(id string) string {
