@@ -301,7 +301,10 @@ func (s *Server) collect(r *http.Request, in eventIn) string {
 				Country: place.Country, Region: clip(place.Region, 80), City: clip(place.City, 80),
 				Device: info.Device, Browser: info.Browser, BrowserVersion: info.BrowserVersion, OS: info.OS, OSVersion: info.OSVersion,
 				Language: language(r.Header.Get("Accept-Language"))}
-			if site.Options.Identify && !asksNotToBeTracked(r, in) {
+			if site.Options.Identify && asksNotToBeTracked(r, in) {
+				// only the fact, so the visit can say why nothing about the person is there
+				hit.Visit.Details = json.RawMessage(`{"not_tracked":true}`)
+			} else if site.Options.Identify {
 				s.who(r, &hit.Visit, ip, place, agent, ref, in, site.Options.BrowserID)
 			}
 		}

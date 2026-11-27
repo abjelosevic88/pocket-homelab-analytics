@@ -48,7 +48,7 @@ func TestKnowWhoVisits(t *testing.T) {
 				t.Fatalf("no browser ID: %v", v)
 			}
 		case "/gpc", "/dnt":
-			if v["ip"] != nil || v["details"] != nil {
+			if d, _ := v["details"].(map[string]any); v["ip"] != nil || v["network"] != nil || len(d) != 1 || d["not_tracked"] != true {
 				t.Fatalf("asked not to be tracked: %v", v)
 			}
 		}

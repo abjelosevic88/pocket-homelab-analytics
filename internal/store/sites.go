@@ -383,7 +383,7 @@ var _ = sql.ErrNoRows
 // the visits and their pages stay.
 func (s *Store) ForgetWho(ctx context.Context, siteID, before int64) (int64, error) {
 	res, err := s.DB.ExecContext(ctx, `UPDATE visits SET ip = '', network = '', asn = 0, postal = '', lat = NULL, lon = NULL, client_id = '', agent = '', ref_url = '', details = ''
-		WHERE site_id = ? AND started < ? AND (ip <> '' OR client_id <> '' OR details <> '' OR agent <> '')`, siteID, before)
+		WHERE site_id = ? AND started < ? AND (ip <> '' OR client_id <> '' OR agent <> '' OR (details <> '' AND details <> '{"not_tracked":true}'))`, siteID, before)
 	if err != nil {
 		return 0, err
 	}

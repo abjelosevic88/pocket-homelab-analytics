@@ -57,7 +57,7 @@ export default function Visits() {
         ))}
         {list.length < total && <button type="button" className="panel-more" disabled={busy} onClick={more}>{busy ? 'Loading…' : `Show ${Math.min(PAGE, total - list.length)} more`}</button>}
       </div>}
-      {open > 0 && <VisitSheet siteID={Number(id)} visitID={open} onOpen={setOpen} onClose={() => setOpen(0)} />}
+      {open > 0 && <VisitSheet siteID={Number(id)} visitID={open} identify={!!site?.options.identify} forgetDays={site?.options.forget_days || 0} onOpen={setOpen} onClose={() => setOpen(0)} />}
     </div>
   )
 }
@@ -187,17 +187,20 @@ function VisitStory({ visit, hits }: { visit: Visit; hits: Hit[] }) {
   )
 }
 
+// when “Know who visits” arrived (0.9.0): older visits never had an address kept
+const WHO_SINCE = Date.UTC(2026, 10, 27, 19, 30) / 1000
 const ORD = (n: number) => { const t = n % 100, u = n % 10; return `${n}${t >= 11 && t <= 13 ? 'th' : u === 1 ? 'st' : u === 2 ? 'nd' : u === 3 ? 'rd' : 'th'}` }
 const day = (ts: number) => fmtDateTime(new Date(ts * 1000).toISOString())
 
-function VisitSheet({ siteID, visitID, onOpen, onClose }: { siteID: number; visitID: number; onOpen: (id: number) => void; onClose: () => void }) {
+function VisitSheet({ siteID, visitID, identify, forgetDays, onOpen, onClose }: { siteID: number; visitID: number; identify: boolean; forgetDays: number; onOpen: (id: number) => void; onClose: () => void }) {
   const [data, setData] = useState<VisitDetail | null>(null)
   const [err, setErr] = useState(false)
   const { toast } = useToast()
   useEffect(() => { setData(null); api.get<VisitDetail>(`${V1}/sites/${siteID}/visits/${visitID}`).then(setData).catch(() => setErr(true)) }, [siteID, visitID])
   const v = data?.visit
   const copy = (text: string) => navigator.clipboard?.writeText(text).then(() => toast('Copied', 'ok'))
-  const known = !!(v && (v.ip || v.client_id || v.details))
+  const notTracked = !!v?.details?.not_tracked
+  const known = !!(v && !notTracked && (v.ip || v.client_id || v.details))
   const n = (data?.others_total || 0)
   return (
     <Modal title="One visit" onClose={onClose} size="lg">
@@ -215,7 +218,8 @@ function VisitSheet({ siteID, visitID, onOpen, onClose }: { siteID: number; visi
         <VisitStory visit={v} hits={data.hits} />
         {known && <WhoDetails v={v} host={data.host} copy={copy} />}
         {data.others && data.others.length > 0 && <OtherVisits list={data.others} total={n} onOpen={onOpen} />}
-        {!known && <p className="muted small">Nothing here tells who this was: this site does not keep IP addresses or a browser ID (Site settings → What is counted → Know who visits).</p>}
+        {notTracked ? <p className="muted small">Their browser asked not to be tracked (Global Privacy Control or Do Not Track), so only the visit was counted: no IP address, no network.</p>
+          : !known && <p className="muted small">Nothing here tells who this was: {v.started < WHO_SINCE ? 'IP addresses are kept only for visits from Nov 27, 2026 on.' : identify && forgetDays ? `who it was is wiped after ${forgetDays} days.` : 'this site does not keep IP addresses (Site settings → What is counted → Know who visits).'}</p>}
       </>}
     </Modal>
   )
